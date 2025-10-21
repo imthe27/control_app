@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
-import 'screen_asistencia.dart';
 
 class ProjectTasksScreen extends StatelessWidget {
+  final int projectId;
   final String projectName;
 
-  const ProjectTasksScreen({super.key, required this.projectName});
+  const ProjectTasksScreen({
+    super.key,
+    required this.projectId,
+    required this.projectName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +37,11 @@ class ProjectTasksScreen extends StatelessWidget {
               onTap: () {
                 switch (index) {
                   case 0:
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceRecordScreen()));
+                    Navigator.pushNamed(
+                        context,
+                        '/attendance',
+                        arguments: {'projectId': projectId},
+                    );
                     break;
                   case 1:
                     showDialog(

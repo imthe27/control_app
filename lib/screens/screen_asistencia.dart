@@ -1,7 +1,15 @@
+import 'dart:convert';
+import 'package:control_app/screens/models/worker.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:control_app/main.dart' show baseUrl;
+
+Uri u(String path) => Uri.parse('$baseUrl$path');
 
 class AttendanceRecordScreen extends StatefulWidget {
-  const AttendanceRecordScreen({super.key});
+  final int projectId;
+
+  const AttendanceRecordScreen({super.key, required this.projectId});
 
   @override
   State<AttendanceRecordScreen> createState() => _AttendanceRecordScreenState();
@@ -9,22 +17,59 @@ class AttendanceRecordScreen extends StatefulWidget {
 
 class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
   DateTime selectedDate = DateTime.now();
-
-  final Map<String, Map<String, bool>> allAttendance = {}; // date => {worker: present}
+  final Map<String, Map<String, String>> allAttendance = {};
+//  date => { workerName: "2.5" }
+  final Map<String, Map<String, String>> allExtras = {};
   List<Map<String, dynamic>> selectedWorkers = [];
-  final List<Map<String, dynamic>> workers = [
-    {
-      'name': 'LUIS PÉREZ',
-      'project': 'Asignado a: Fundación Sur',
-      'image': null,
-    },
-    {
-      'name': 'JOSÉ MARTÍNEZ',
-      'project': 'Asignado a: Edificio Central',
-      'image': null,
-    },
-  ];
-  Map<String, bool> get currentDayAttendance {
+  List<Map<String, dynamic>> allWorkers = [];
+  int get currentProjectId => widget.projectId;
+  Set<int> selectedIndexes = {};
+
+  @override
+  void initState() {
+    super.initState();
+    refreshWorkers();
+    loadAttendanceForDate();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Project ID: $currentProjectId'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    });
+  }
+
+  Future<void> refreshWorkers() async {
+    final response = await http.get(u('/workers'));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      setState(() {
+        allWorkers = List<Map<String, dynamic>>.from(data);
+        selectedWorkers = allWorkers.where((w) => w['project_id'] == currentProjectId).toList();
+      });
+    }
+  }
+
+  Future<void> loadAttendanceForDate() async {
+    final formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
+    final response = await http.get(u('/attendance/$currentProjectId/$formattedDate'));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final Map<String, String> daily = {
+        for (var entry in data) entry['name']: entry['status']
+      };
+      setState(() {
+        allAttendance[_formatDate(selectedDate)] = daily;
+        allExtras[_formatDate(selectedDate)] ??= {
+          for (var w in selectedWorkers) w['name']: '0'
+        };
+      });
+    }
+  }
+
+  Map<String, String> get currentDayAttendance {
     final key = _formatDate(selectedDate);
     return allAttendance[key] ?? {};
   }
@@ -39,40 +84,61 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
     if (picked != null) {
       setState(() {
         selectedDate = picked;
-
-        // Reset checkboxes if no saved data for this date
-        if (!allAttendance.containsKey(_formatDate(picked))) {
-          allAttendance[_formatDate(picked)] = {
-            for (var w in selectedWorkers) w['name']: false
-          };
-        }
       });
+      await loadAttendanceForDate();
     }
   }
 
-  void _saveAttendance() {
+  void _saveAttendance() async {
     final key = _formatDate(selectedDate);
     allAttendance[key] = {
       for (var w in selectedWorkers)
-        w['name']: currentDayAttendance[w['name']] ?? false
+        w['name']: currentDayAttendance[w['name']] ?? '0'
     };
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Asistencia guardada')),
+    final extrasMap = allExtras[key] ??= { for (var w in selectedWorkers) w['name']: '0' };
+
+    final attendancePayload = selectedWorkers.map((worker) {
+      final name = worker['name'] as String;
+      final extraTxt = extrasMap[name] ?? '0';
+      final extra = double.tryParse(extraTxt.replaceAll(',', '.')) ?? 0.0;
+      return {
+        'worker_id': worker['id'],
+        'project_id': currentProjectId,
+        'date': selectedDate.toIso8601String().split('T').first,
+        'status': allAttendance[key]![worker['name']],
+        'extra_hours': extra,
+      };
+    }).toList();
+
+    final response = await http.post(
+      u('/attendance/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(attendancePayload),
     );
+
+    if (response.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Asistencia guardada')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al guardar asistencia: ${response.body}')),
+      );
+    }
   }
 
-  String _formatDate(DateTime date) =>
-      "${date.day}/${date.month}/${date.year}";
+  String _formatDate(DateTime date) => "${date.day}/${date.month}/${date.year}";
 
   void _showWorkerPickDialog() {
     showDialog(
       context: context,
       builder: (_) {
         final Map<String, bool> tempSelection = {
-          for (var w in workers)
-            if (!selectedWorkers.any((e) => e['name'] == w['name']))
-              w['name']: false
+          for (var w in allWorkers)
+            if ((w['project_id'] == null || w['project_id'] == 0) &&
+                !selectedWorkers.any((e) => e['id'] == w['id']))
+              w['id'].toString(): false,
         };
 
         return StatefulBuilder(
@@ -84,7 +150,7 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
                 child: ListView(
                   shrinkWrap: true,
                   children: tempSelection.entries.map((entry) {
-                    final worker = workers.firstWhere((w) => w['name'] == entry.key);
+                    final worker = allWorkers.firstWhere((w) => w['id'].toString() == entry.key);
                     return CheckboxListTile(
                       title: Text(worker['name']),
                       value: entry.value,
@@ -103,27 +169,37 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
                   child: const Text('Cancelar'),
                 ),
                 ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     final selectedToAdd = tempSelection.entries
                         .where((e) => e.value)
-                        .map((e) => workers.firstWhere((w) => w['name'] == e.key))
+                        .map((e) => allWorkers.firstWhere((w) => w['id'].toString() == e.key))
                         .toList();
+
+                    for (var worker in selectedToAdd) {
+                      await http.put(
+                        u('/worker/${worker['id']}/assign-project'),
+                        headers: {'Content-Type': 'application/json'},
+                        body: jsonEncode({'project_id': currentProjectId}),
+                      );
+                    }
 
                     Navigator.pop(context);
 
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      await refreshWorkers();
+
                       setState(() {
                         selectedWorkers.addAll(selectedToAdd);
-
                         final todayKey = _formatDate(selectedDate);
                         allAttendance[todayKey] ??= {};
+                        allExtras[todayKey] ??= {};
                         for (var worker in selectedToAdd) {
-                          allAttendance[todayKey]![worker['name']] = false;
+                          allAttendance[todayKey]![worker['name']] = '0';
+                          allExtras[todayKey]![worker['name']] = '0';
                         }
                       });
-                    });
+                    }
                   },
-
                   child: const Text('Agregar'),
                 ),
               ],
@@ -134,17 +210,81 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
     );
   }
 
+  Future<void> deleteWorkersFromProject(List<int> ids) async {
+    for (int id in ids) {
+      final response = await http.put(
+        u('/worker/$id/remove-project'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        print('Error al eliminar trabajador $id: ${response.body}');
+      }
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trabajadores eliminados')));
+  }
+
+  void _confirmDeleteSelected() {
+    String password = '';
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Confirmar eliminación'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Ingresa la contraseña para eliminar los trabajadores seleccionados:'),
+            TextField(
+              obscureText: true,
+              onChanged: (value) => password = value,
+              decoration: const InputDecoration(labelText: 'Contraseña'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (password == 'Mony1705') {
+                final idsToDelete = selectedIndexes.map((i) => selectedWorkers[i]['id'] as int).toList();
+                await deleteWorkersFromProject(idsToDelete);
+                await refreshWorkers();
+                setState(() => selectedIndexes.clear());
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contraseña incorrecta')));
+              }
+            },
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final todayKey = _formatDate(selectedDate);
     allAttendance[todayKey] ??= {
-      for (var w in selectedWorkers) w['name']: false
+      for (var w in selectedWorkers) w['name']: '0'
+    };
+    allExtras[todayKey] ??= {
+      for (var w in selectedWorkers) w['name']: '0'
     };
 
     final attendanceMap = allAttendance[todayKey]!;
+    final extrasMap = allExtras[todayKey]!;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Registrar Asistencia')),
+      appBar: AppBar(title: const Text('Registrar Asistencia'),
+        actions: [
+          if (selectedIndexes.isNotEmpty) ...[
+            IconButton(
+              icon: const Icon(Icons.delete),
+              onPressed: _confirmDeleteSelected,
+            ),
+          ]
+        ],
+      ),
       body: Column(
         children: [
           Padding(
@@ -186,16 +326,56 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
                 itemCount: selectedWorkers.length,
                 itemBuilder: (context, index) {
                   final worker = selectedWorkers[index];
-                  return CheckboxListTile(
-                    title: Text(worker['name']),
-                    subtitle: Text(worker['project']),
-                    value: attendanceMap[worker['name']] ?? false,
-                    onChanged: (val) {
+                  return GestureDetector(
+                    onLongPress: () {
                       setState(() {
-                        allAttendance[todayKey] ??= {};
-                        allAttendance[todayKey]![worker['name']] = val ?? false;
+                        if (selectedIndexes.contains(index)) {
+                          selectedIndexes.remove(index);
+                        } else {
+                          selectedIndexes.add(index);
+                        }
                       });
                     },
+                    child: ListTile(
+                      title: Text(worker['name']),
+                      trailing: SizedBox(
+                        width: 160,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Checkbox(
+                              value: attendanceMap[worker['name']] == '1',
+                              onChanged: (val) {
+                                setState(() {
+                                  allAttendance[todayKey]![worker['name']] = val == true ? '1' : '0';
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 6),
+                            SizedBox(
+                              width: 70,
+                              child: TextField(
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  labelText: 'HE',
+                                  border: OutlineInputBorder(),
+                                ),
+                                controller: TextEditingController(
+                                  text: extrasMap[worker['name']] ?? '0',
+                                ),
+                                onChanged: (txt) {
+                                  setState(() {
+                                    allExtras[todayKey]![worker['name']] = txt;
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      tileColor: selectedIndexes.contains(index) ? Colors.red.shade100 : null,
+                    ),
                   );
                 },
               ),

@@ -30,15 +30,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  firebase_core: any
-  firebase_auth: any
-  cloud_firestore: any
-  firebase_storage: any
   image_picker: any
   file_picker: any
-  pdfx: any
   provider: any
+  path_provider: ^2.1.1
   flutter_pdfview: any
+  http: ^0.13.6
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+  open_file: ^3.3.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
