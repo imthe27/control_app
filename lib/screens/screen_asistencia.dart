@@ -43,32 +43,55 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
   Future<void> refreshWorkers() async {
     try {
       final resp = await http.get(u('/workers'));
-      if (resp.statusCode == 200) {
-        final contentType = resp.headers['content-type'] ?? '';
-        if (!contentType.contains('application/json')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Respuesta no válida del servidor (no JSON).')),
-          );
-          return;
-        }
-        final data = jsonDecode(resp.body);
-        setState(() {
-          allWorkers = List<Map<String, dynamic>>.from(data);
-          selectedWorkers = allWorkers
-              .where((w) => w['project_id'] == currentProjectId)
-              .toList()
-            ..sort((a, b) => (a['name'] ?? '').toString()
-                .toLowerCase()
-                .compareTo((b['name'] ?? '').toString().toLowerCase()));
-        });
-      } else {
+
+      final ct = resp.headers['content-type'] ?? '';
+      if (resp.statusCode != 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error ${resp.statusCode} al cargar workers')),
+          SnackBar(content: Text('Workers HTTP ${resp.statusCode}')),
         );
+        return;
       }
+      if (!ct.contains('application/json')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Respuesta no JSON (¿HTML/login?)')),
+        );
+        return;
+      }
+
+      final List<dynamic> raw = jsonDecode(resp.body);
+      final List<Map<String, dynamic>> list =
+      raw.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList();
+
+      for (final w in list) {
+        final v = w['project_id'];
+        int? pid;
+        if (v == null) {
+          pid = null;
+        } else if (v is num) {
+          pid = v.toInt();
+        } else if (v is String) {
+          pid = int.tryParse(v);
+        }
+        w['project_id'] = pid;
+      }
+
+      final int pidCurrent = currentProjectId; // sanity shortcut
+      final filtered = list.where((w) => (w['project_id'] as int?) == pidCurrent).toList()
+        ..sort((a, b) => (a['name'] ?? '').toString().toLowerCase()
+            .compareTo((b['name'] ?? '').toString().toLowerCase()));
+
+      if (!mounted) return;
+      setState(() {
+        allWorkers = list;
+        selectedWorkers = filtered;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Workers: ${list.length}, del proyecto $pidCurrent: ${filtered.length}')),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error de red: $e')),
+        SnackBar(content: Text('Error de red/parseo: $e')),
       );
     }
   }
@@ -78,19 +101,19 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
     final resp = await http.get(u('/attendance/$currentProjectId/$formattedDate'));
 
     if (resp.statusCode == 200 && (resp.headers['content-type'] ?? '').contains('application/json')) {
-      final data = jsonDecode(resp.body);
+      final List<dynamic> data = jsonDecode(resp.body);
       final Map<String, String> daily = {
-        for (var entry in data) entry['name']: (entry['status'] ?? '0').toString()
+        for (final row in data) (row['name'] ?? '').toString(): (row['status'] ?? '0').toString()
       };
       setState(() {
         allAttendance[_formatDate(selectedDate)] = daily;
         allExtras[_formatDate(selectedDate)] ??= {
-          for (var w in selectedWorkers) w['name']: '0'
+          for (final w in selectedWorkers) w['name']: '0'
         };
       });
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Asistencia no disponible (${resp.statusCode})')),
+        SnackBar(content: Text('Asistencia (${resp.statusCode}) no disponible')),
       );
     }
   }
@@ -98,6 +121,30 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
   Map<String, String> get currentDayAttendance {
     final key = _formatDate(selectedDate);
     return allAttendance[key] ?? {};
+  }
+
+  void _applyStatusToSelected(String special) {
+    final key = _formatDate(selectedDate);
+    setState(() {
+      for (final idx in selectedIndexes) {
+        final name = selectedWorkers[idx]['name'] as String;
+        allAttendance[key] ??= {};
+        allAttendance[key]![name] = special;
+        allExtras[key] ??= {};
+        allExtras[key]![name] = '0';
+      }
+    });
+  }
+
+  void _clearSpecialStatusForSelected() {
+    final key = _formatDate(selectedDate);
+    setState(() {
+      for (final idx in selectedIndexes) {
+        final name = selectedWorkers[idx]['name'] as String;
+        allAttendance[key]![name] = '0';
+      }
+      selectedIndexes.clear();
+    });
   }
 
   void _pickDate() async {
@@ -301,14 +348,31 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
     final extrasMap = allExtras[todayKey]!;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Registrar Asistencia'),
+      appBar: AppBar(
+        title: const Text('Registrar Asistencia'),
         actions: [
           if (selectedIndexes.isNotEmpty) ...[
             IconButton(
+              tooltip: 'Marcar Vacaciones',
+              icon: const Icon(Icons.beach_access),
+              onPressed: () => _applyStatusToSelected('V'),
+            ),
+            IconButton(
+              tooltip: 'Marcar Incapacidad',
+              icon: const Icon(Icons.local_hospital),
+              onPressed: () => _applyStatusToSelected('INC'),
+            ),
+            IconButton(
+              tooltip: 'Quitar V/INC',
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _clearSpecialStatusForSelected(),
+            ),
+            IconButton(
+              tooltip: 'Eliminar seleccionados',
               icon: const Icon(Icons.delete),
               onPressed: _confirmDeleteSelected,
             ),
-          ]
+          ],
         ],
       ),
       body: Column(
@@ -352,6 +416,9 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
                 itemCount: selectedWorkers.length,
                 itemBuilder: (context, index) {
                   final worker = selectedWorkers[index];
+                  final name = worker['name'] as String;
+                  final status = attendanceMap[name] ?? '0';
+                  final isSpecial = status == 'V' || status == 'INC';
                   return GestureDetector(
                     onLongPress: () {
                       setState(() {
@@ -365,22 +432,44 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
                     child: ListTile(
                       title: Text(worker['name']),
                       trailing: SizedBox(
-                        width: 160,
+                        width: 180,
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Checkbox(
-                              value: attendanceMap[worker['name']] == '1',
-                              onChanged: (val) {
-                                setState(() {
-                                  allAttendance[todayKey]![worker['name']] = val == true ? '1' : '0';
-                                });
-                              },
-                            ),
-                            const SizedBox(width: 6),
+                            if (isSpecial) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: status == 'V' ? Colors.yellow.shade100 : Colors.blue.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: status == 'V' ? Colors.yellow.shade700 : Colors.blue.shade700,
+                                  ),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: status == 'V' ? Colors.yellow.shade900 : Colors.blue.shade900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ] else ...[
+                              Checkbox(
+                                value: status == '1',
+                                onChanged: isSpecial ? null : (val) {
+                                  setState(() {
+                                    allAttendance[todayKey]![name] = (val == true) ? '1' : '0';
+                                  });
+                                },
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             SizedBox(
                               width: 70,
                               child: TextField(
+                                enabled: !isSpecial,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                 decoration: const InputDecoration(
                                   isDense: true,
@@ -388,11 +477,11 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
                                   border: OutlineInputBorder(),
                                 ),
                                 controller: TextEditingController(
-                                  text: extrasMap[worker['name']] ?? '0',
+                                  text: extrasMap[name] ?? '0',
                                 ),
                                 onChanged: (txt) {
                                   setState(() {
-                                    allExtras[todayKey]![worker['name']] = txt;
+                                    allExtras[todayKey]![name] = txt;
                                   });
                                 },
                               ),
