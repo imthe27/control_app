@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:control_app/screens/models/worker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/main.dart' show baseUrl;
@@ -42,23 +41,46 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
   }
 
   Future<void> refreshWorkers() async {
-    final response = await http.get(u('/workers'));
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      setState(() {
-        allWorkers = List<Map<String, dynamic>>.from(data);
-        selectedWorkers = allWorkers.where((w) => w['project_id'] == currentProjectId).toList();
-      });
+    try {
+      final resp = await http.get(u('/workers'));
+      if (resp.statusCode == 200) {
+        final contentType = resp.headers['content-type'] ?? '';
+        if (!contentType.contains('application/json')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Respuesta no válida del servidor (no JSON).')),
+          );
+          return;
+        }
+        final data = jsonDecode(resp.body);
+        setState(() {
+          allWorkers = List<Map<String, dynamic>>.from(data);
+          selectedWorkers = allWorkers
+              .where((w) => w['project_id'] == currentProjectId)
+              .toList()
+            ..sort((a, b) => (a['name'] ?? '').toString()
+                .toLowerCase()
+                .compareTo((b['name'] ?? '').toString().toLowerCase()));
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error ${resp.statusCode} al cargar workers')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error de red: $e')),
+      );
     }
   }
 
   Future<void> loadAttendanceForDate() async {
     final formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
-    final response = await http.get(u('/attendance/$currentProjectId/$formattedDate'));
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+    final resp = await http.get(u('/attendance/$currentProjectId/$formattedDate'));
+
+    if (resp.statusCode == 200 && (resp.headers['content-type'] ?? '').contains('application/json')) {
+      final data = jsonDecode(resp.body);
       final Map<String, String> daily = {
-        for (var entry in data) entry['name']: entry['status']
+        for (var entry in data) entry['name']: (entry['status'] ?? '0').toString()
       };
       setState(() {
         allAttendance[_formatDate(selectedDate)] = daily;
@@ -66,6 +88,10 @@ class _AttendanceRecordScreenState extends State<AttendanceRecordScreen> {
           for (var w in selectedWorkers) w['name']: '0'
         };
       });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Asistencia no disponible (${resp.statusCode})')),
+      );
     }
   }
 
