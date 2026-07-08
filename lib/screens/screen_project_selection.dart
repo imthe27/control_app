@@ -4,19 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'screen_obra.dart';
+import 'screen_record_attendance.dart';
 import 'package:control_app/main.dart' show baseUrl;
 
 Uri u(String path) => Uri.parse('$baseUrl$path');
 
-class ProjectsScreen extends StatefulWidget {
-  const ProjectsScreen({super.key});
+class ProjectSelectionScreen extends StatefulWidget {
+  const ProjectSelectionScreen({super.key});
 
   @override
-  State<ProjectsScreen> createState() => _ProjectsScreenState();
+  State<ProjectSelectionScreen> createState() => _ProjectSelectionScreenState();
 }
 
-class _ProjectsScreenState extends State<ProjectsScreen> {
+class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
   List<Map<String, dynamic>> projects = [];
   Set<String> pinnedProjectNames = {};
   final TextEditingController _nameController = TextEditingController();
@@ -215,7 +215,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Obras'),
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(title: const Text('OBRAS'),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 26,
+          fontWeight: FontWeight.bold),
+        backgroundColor: Color(0xFF1C1CF0).withValues(alpha: 0.5),
+        elevation: 0,
         actions: [
           if (selectedIndexes.isNotEmpty) ...[
             if (selectedIndexes.length == 1)
@@ -245,7 +252,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           ]
         ],
       ),
-      body: ListView.builder(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+          ),
+        ),
+      child: ListView.builder(
         itemCount: projects.length,
         itemBuilder: (context, index) {
           final project = projects[index];
@@ -261,9 +276,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => ProjectTasksScreen(
+                    builder: (_) => RecordAttendanceScreen(
                       projectId: project['id'],
-                      projectName: project['name'],
+                      //projectName: project['name'],
                     ),
                   ),
                 );
@@ -290,22 +305,31 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           width: double.infinity,
                           decoration: BoxDecoration(
                             borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                            image: DecorationImage(
-                              image: project['photo_url'] != null
-                                  ? NetworkImage('${project['photo_url']}')
-                                  : const AssetImage('assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg') as ImageProvider,
-                              fit: BoxFit.cover,
-                            ),
                             color: Colors.grey[300],
                           ),
-                        ),
+                            child: project['photo_url'] != null
+                            ? Image.network(
+                              project['photo_url'],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                                return Image.asset(
+                                    'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
+                                fit: BoxFit.cover,
+                                );
+                            },
+                            )
+                            : Image.asset(
+                              'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
+                              fit: BoxFit.cover,
+                            ),
+                ),
                         Positioned(
                           top: 8,
                           left: 12,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.3),
+                              color: Colors.black.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
@@ -360,6 +384,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             ),
           );
         },
+      ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddProjectDialog,

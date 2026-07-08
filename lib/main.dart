@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'screens/screen_splash.dart';
 import 'screens/screen_home.dart';
 import 'screens/screen_login.dart';
-import 'screens/screen_obras.dart';
-import 'screens/screen_personal.dart';
-import 'screens/screen_asistencia.dart';
+import 'screens/screen_project_selection.dart';
+import 'screens/screen_personnel.dart';
+import 'screens/screen_record_attendance.dart';
 import 'package:flutter/foundation.dart';
 
 void main() {
   runApp(const MainApp());
 }
 
-const String baseUrlProd = 'https://f542a22302b6.ngrok-free.app';
+const String baseUrlProd = 'https://4d0a-187-190-78-179.ngrok-free.app';
 const String baseUrlDev = 'http://192.168.1.7:8000';
 final String baseUrl = kDebugMode ? baseUrlDev : baseUrlProd;
 
@@ -28,11 +28,11 @@ class MainApp extends StatelessWidget {
         '/splash': (context) => const SplashScreen(),
         '/login': (context) => const LoginScreen(),
         '/home': (context) => const HomeScreen(),
-        '/projects': (context) => const ProjectsScreen(),
-        '/personnel': (context) => const AttendanceScreen(),
+        '/projects': (context) => const ProjectSelectionScreen(),
+        '/personnel': (context) => const PersonnelScreen(),
         '/attendance': (context) {
           final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
-          return AttendanceRecordScreen(projectId: args['projectId']);
+          return RecordAttendanceScreen(projectId: args['projectId']);
         },
       },
     );

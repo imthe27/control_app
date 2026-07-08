@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-class ProjectTasksScreen extends StatelessWidget {
+class ProjectScreen extends StatelessWidget {
   final int projectId;
   final String projectName;
 
-  const ProjectTasksScreen({
+  const ProjectScreen({
     super.key,
     required this.projectId,
     required this.projectName,
