@@ -66,23 +66,66 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Iniciar sesión')),
-      body: Padding(
+      appBar: AppBar(
+        title: const Text('INICIAR SESIÓN'),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.blue, Color(0xFF1C1CF0)],
+            ),
+          ),
+        ),
+        titleTextStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 26,
+            fontWeight: FontWeight.bold
+        ),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+          ),
+        ),
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            SizedBox(
+              height: 100,
+              width: 100,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.asset(
+                  'assets/icon.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
             TextField(
               controller: _usernameController,
-              decoration: const InputDecoration(labelText: 'Usuario'),
+              decoration: const InputDecoration(
+                  labelText: 'USUARIO',
+                labelStyle: const TextStyle(color: Colors.white),
+              ),
+              style: TextStyle(color: Colors.white),
             ),
             TextField(
               controller: _passwordController,
-              decoration: const InputDecoration(labelText: 'Contraseña'),
+              decoration: const InputDecoration(
+                  labelText: 'CONTRASEÑA',
+                labelStyle: const TextStyle(color: Colors.white),
+              ),
+              style: const TextStyle(color: Colors.white),
               obscureText: true,
             ),
             const SizedBox(height: 20),
-            if (_isLoading) const CircularProgressIndicator(),
+            if (_isLoading) const CircularProgressIndicator(color: Colors.yellow,),
             if (_errorMessage != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -90,10 +133,11 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ElevatedButton(
               onPressed: _isLoading ? null : _login,
-              child: const Text('Entrar'),
+              child: const Text('ENTRAR'),
             ),
           ],
         ),
+      ),
       ),
     );
   }

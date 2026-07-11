@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:control_app/update_checker.dart';
 import 'screen_project_selection.dart';
 import 'screen_personnel.dart';
 import 'screen_attendance_viewer.dart';
@@ -20,6 +21,14 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   @override
+  void initState(){
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => UpdateChecker.check(context),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0000FF),
@@ -35,15 +44,15 @@ class _HomeScreenState extends State<HomeScreen> {
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.construction),
-            label: 'Obras',
+            label: 'OBRAS',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.people),
-            label: 'Personal',
+            label: 'PERSONAL',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.checklist),
-            label: 'Asistencia',
+            label: 'ASISTENCIA',
           ),
         ],
       ),

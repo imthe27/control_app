@@ -19,7 +19,7 @@ class Worker {
     return Worker(
       id: json['id'],
       name: json['name'],
-      project: json['project'] ?? 'Sin asignar',
+      project: json['project'] ?? 'LA FE',
       role: json['role'],
       photoUrl: json['photo_url'],
       projectId: json['project_id'] ?? null,

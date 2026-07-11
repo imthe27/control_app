@@ -22,8 +22,8 @@ class Project {
       id: json['id'],
       name: json['name'],
       address: json['address'],
-      status: json['status'] ?? 'In Progress',
-      progress: (json['progress'] ?? 0).toDouble(),
+      status: json['status'] ?? 'EN PROCESO',
+      progress: (json['progress'] ?? 0.6).toDouble(),
       photoUrl: json['photo_url'],
       isPinned: json['isPinned'] ?? false,
     );

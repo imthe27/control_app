@@ -201,7 +201,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Agregar personal'),
+              title: const Text('AGREGAR PERSONAL'),
               content: SizedBox(
                 width: double.maxFinite,
                 child: ListView(
@@ -223,7 +223,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar'),
+                  child: const Text('CANCELAR'),
                 ),
                 ElevatedButton(
                   onPressed: () async {
@@ -246,7 +246,6 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                       await refreshWorkers();
 
                       setState(() {
-                        selectedWorkers.addAll(selectedToAdd);
                         final todayKey = _formatDate(selectedDate);
                         allAttendance[todayKey] ??= {};
                         allExtras[todayKey] ??= {};
@@ -257,7 +256,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                       });
                     }
                   },
-                  child: const Text('Agregar'),
+                  child: const Text('AGREGAR'),
                 ),
               ],
             );
@@ -291,27 +290,30 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
         actions: [
           if (selectedIndexes.isNotEmpty) ...[
             IconButton(
-              tooltip: 'Vacaciones',
+              tooltip: 'VACACIONES',
               icon: const Icon(Icons.beach_access),
               onPressed: () => _applyStatusToSelected('V'),
             ),
             IconButton(
-              tooltip: 'Incapacidad',
+              tooltip: 'INCAPACIDAD',
               icon: const Icon(Icons.local_hospital),
               onPressed: () => _applyStatusToSelected('INC'),
             ),
             IconButton(
-              tooltip: 'Presente',
+              tooltip: 'PRESENTE',
               icon: const Icon(Icons.check_circle),
               onPressed: () => _applyStatusToSelected('1'),
             ),
             IconButton(
-              tooltip: 'Limpiar',
+              tooltip: 'LIMPIAR',
               icon: const Icon(Icons.refresh),
               onPressed: _clearSpecialStatusForSelected,
             ),
           ],
         ],
+        iconTheme: IconThemeData(
+          color: Colors.white,
+        ),
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -329,7 +331,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
               Icon(Icons.people_outline, size: 64, color: Colors.white70),
               const SizedBox(height: 16),
               const Text(
-                'No hay personal asignado',
+                'NO HAY PERSONAL ASIGNADO',
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
             ],
@@ -337,7 +339,6 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
         )
             : Column(
           children: [
-            // Date Picker
             Padding(
               padding: const EdgeInsets.all(16),
               child: GestureDetector(
@@ -362,7 +363,6 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                 ),
               ),
             ),
-            // Grid of Worker Cards
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -419,8 +419,8 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
             heroTag: 'add_worker',
             onPressed: _showWorkerPickDialog,
             backgroundColor: const Color(0xFF1C1CF0),
-            icon: const Icon(Icons.person_add),
-            label: const Text('Agregar'),
+            icon: const Icon(Icons.person_add, color: Colors.white),
+            label: const Text('AGREGAR', style: const TextStyle(color: Colors.white)),
           ),
           const SizedBox(height: 12),
           FloatingActionButton.extended(
@@ -433,11 +433,11 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
               height: 24,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.yellow),
               ),
             )
-                : const Icon(Icons.save),
-            label: Text(isSaving ? 'Guardando...' : 'Guardar'),
+                : const Icon(Icons.save, color: Colors.white),
+            label: Text(isSaving ? 'GUARDANDO...' : 'GUARDAR', style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -480,7 +480,7 @@ class _AttendanceCardState extends State<_AttendanceCard> {
     final currentValue = double.tryParse(widget.extraHours) ?? 0.0;
     final initialIndex = heOptions.indexOf(currentValue).clamp(0, heOptions.length - 1);
     _heController = PageController(
-      viewportFraction: 0.35, // controls box width; smaller = more boxes visible
+      viewportFraction: 0.35,
       initialPage: initialIndex,
     );
   }
@@ -509,9 +509,9 @@ class _AttendanceCardState extends State<_AttendanceCard> {
       case '1':
         return 'PRESENTE';
       case 'V':
-        return 'Vacaciones';
+        return 'VACACIONES';
       case 'INC':
-        return 'Incapacidad';
+        return 'INCAPACIDAD';
       default:
         return 'FALTA';
     }
@@ -554,7 +554,6 @@ class _AttendanceCardState extends State<_AttendanceCard> {
           children: [
             Column(
               children: [
-                // Worker Photo/Avatar Section
                 Expanded(
                   flex: 2,
                   child: Container(
@@ -594,7 +593,7 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                         fit: BoxFit.cover,
                         width: double.infinity,
                         placeholder: (context, url) => const Center(
-                          child: CircularProgressIndicator(),
+                          child: CircularProgressIndicator(color: Colors.yellow),
                         ),
                         errorWidget: (context, url, error) =>
                         const Center(child: Icon(Icons.person)),
@@ -602,7 +601,6 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                     ),
                   ),
                 ),
-                // Name + Status Section
                 Expanded(
                   flex: 1,
                   child: Padding(
@@ -645,7 +643,6 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                     ),
                   ),
                 ),
-                // Horas Extras — centered snapping selector
                 Expanded(
                   flex: 1,
                   child: Container(
@@ -660,7 +657,6 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                         controller: _heController,
                         itemCount: heOptions.length,
                         onPageChanged: (index) {
-                          // The centered box IS the selection, like Draftea
                           widget.onExtraHoursChanged(heOptions[index].toString());
                         },
                         itemBuilder: (context, index) {
@@ -676,7 +672,7 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                                 );
                               },
                               child: AspectRatio(
-                                aspectRatio: 1, // square box
+                                aspectRatio: 1,
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(
                                       horizontal: 4, vertical: 8),
@@ -729,7 +725,6 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                 ),
               ],
             ),
-            // Attendance checkmark (top-left) — shows when present
             Positioned(
               top: 8,
               left: 8,
@@ -751,7 +746,6 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                 ),
               ),
             ),
-            // Multi-selection badge (top-right)
             if (widget.isSelected)
               Positioned(
                 top: 8,

@@ -3,7 +3,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'models/worker.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:control_app/main.dart' show baseUrl;
 
 Uri u(String path) => Uri.parse('$baseUrl$path');
@@ -18,13 +17,13 @@ class PersonnelScreen extends StatefulWidget {
 class _PersonnelScreenState extends State<PersonnelScreen> {
   List<Worker> workers = [];
   bool isLoading = true;
-  final List<String> _roles = ['Electricista', 'Albañil', 'Plomero', 'Herrero'];
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _projectController = TextEditingController();
-  String _selectedRole = 'Electricista';
   String searchQuery = '';
-  String roleFilter = 'Todos';
   Set<int> selectedIndexes = {};
+  //final List<String> _roles = ['Electricista', 'Albañil', 'Plomero', 'Herrero'];
+  //String roleFilter = 'TODOS';  to be defined roles
+  //String _selectedRole = 'Electricista';
 
   @override
   void initState() {
@@ -44,7 +43,6 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
           }).toList();
           isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Datos actualizados')));
       } else {
         throw Exception('Error al cargar trabajadores');
       }
@@ -62,7 +60,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       body: jsonEncode({
         'name': name,
         'project': project,
-        'role': role,
+//        'role': role,
         'photo_url': photoUrl,
       }),
     );
@@ -81,7 +79,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       body: jsonEncode({
         'name': name,
         'project': project,
-        'role': role,
+//        'role': role,
       }),
     );
     if (response.statusCode != 200) {
@@ -109,14 +107,14 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   void _clearInputs() {
     _nameController.clear();
     _projectController.clear();
-    _selectedRole = _roles.first;
+//    _selectedRole = _roles.first;
   }
 
   void _showAddDialog({Worker? worker, int? index}) {
     if (worker != null) {
       _nameController.text = worker.name;
       _projectController.text = worker.project;
-      _selectedRole = _roles.contains(worker.role) ? worker.role : _roles.first;
+//      _selectedRole = _roles.contains(worker.role) ? worker.role : _roles.first;
     } else {
       _clearInputs();
     }
@@ -124,45 +122,45 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(worker != null ? 'Editar trabajador' : 'Nuevo trabajador'),
+        title: Text(worker != null ? 'EDITAR TRABAJADOR' : 'NUEVO TRABAJADOR'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Nombre'),
+                decoration: const InputDecoration(labelText: 'NOMBRE'),
               ),
               TextField(
                 controller: _projectController,
-                decoration: const InputDecoration(labelText: 'Proyecto asignado'),
+                decoration: const InputDecoration(labelText: 'OBRA ASIGNADA'),
               ),
-              DropdownButtonFormField<String>(
-                value: _selectedRole,
-                decoration: const InputDecoration(labelText: 'Rol'),
-                items: _roles.map((role) => DropdownMenuItem(value: role, child: Text(role))).toList(),
-                onChanged: (val) => setState(() => _selectedRole = val!),
-              ),
+//              DropdownButtonFormField<String>(
+//                value: _selectedRole,
+//                decoration: const InputDecoration(labelText: 'Rol'),
+//                items: _roles.map((role) => DropdownMenuItem(value: role, child: Text(role))).toList(),
+//                onChanged: (val) => setState(() => _selectedRole = val!),
+//              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
           ElevatedButton(
             onPressed: () async {
               final name = _nameController.text.trim();
               final project = _projectController.text.trim();
               if (name.isNotEmpty && project.isNotEmpty) {
                 if (worker != null && index != null) {
-                  await updateWorkerInBackend(worker.id!, name, project, _selectedRole);
+                  await updateWorkerInBackend(worker.id, name, project, 'null');
                 } else {
-                  await addWorkerToBackend(name, project, _selectedRole, null);
+                  await addWorkerToBackend(name, project, 'null', null);
                 }
                 await loadWorkers();
                 Navigator.pop(context);
               }
             },
-            child: Text(worker != null ? 'Guardar' : 'Agregar'),
+            child: Text(worker != null ? 'GUARDAR' : 'AGREGAR'),
           ),
         ],
       ),
@@ -174,33 +172,33 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Confirmar eliminación'),
+        title: const Text('CONFIRMAR ELIMINAR TRABAJADORES'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Ingresa la contraseña para eliminar los trabajadores seleccionados:'),
+            const Text('INGRESA LA CONTRASEÑA PARA ELIMINAR LOS TRABAJADORES SELECCIONADOS:'),
             TextField(
               obscureText: true,
               onChanged: (value) => password = value,
-              decoration: const InputDecoration(labelText: 'Contraseña'),
+              decoration: const InputDecoration(labelText: 'CONTRASEÑA'),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
           ElevatedButton(
             onPressed: () async {
               if (password == 'Mony1705') {
-                final idsToDelete = selectedIndexes.map((i) => workers[i].id!).toList();
+                final idsToDelete = selectedIndexes.map((i) => workers[i].id).toList();
                 await deleteWorkersFromBackend(idsToDelete);
                 await loadWorkers();
                 setState(() => selectedIndexes.clear());
                 Navigator.pop(context);
               } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contraseña incorrecta')));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('CONTRASEÑA INCORRECTA')));
               }
             },
-            child: const Text('Eliminar'),
+            child: const Text('ELIMINAR'),
           ),
         ],
       ),
@@ -233,7 +231,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: const [
                 CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.yellow),
                 ),
                   SizedBox(height: 16),
                   Text(
@@ -249,19 +247,27 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
     final filteredWorkers = workers.where((w) {
       final matchesName = w.name.toUpperCase().contains(searchQuery.toUpperCase());
-      final matchesRole = roleFilter == 'Todos' || w.role == roleFilter;
-      return matchesName && matchesRole;
+//      final matchesRole = roleFilter == 'Todos' || w.role == roleFilter;
+      return matchesName;// && matchesRole;
     }).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('PERSONAL'),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 26,
-          fontWeight: FontWeight.bold,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.blue, Color(0xFF1C1CF0)],
+            ),
+          ),
         ),
-        backgroundColor: const Color(0xFF1C1CF0),
+        titleTextStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 26,
+            fontWeight: FontWeight.bold
+        ),
         elevation: 0,
         actions: [
           if (selectedIndexes.isNotEmpty) ...[
@@ -332,7 +338,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                 child: filteredWorkers.isEmpty
                     ? Center(
                   child: Text(
-                    'No hay trabajadores',
+                    'NO HAY TRABAJADORES',
                     style: TextStyle(color: Colors.white70),
                   ),
                 )
@@ -381,7 +387,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddDialog,
         backgroundColor: const Color(0xFF1C1CF0),
-        child: const Icon(Icons.person_add),
+        child: const Icon(Icons.person_add, color: Colors.white),
       ),
     );
   }
@@ -438,7 +444,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cerrar'),
+            child: const Text('CERRAR'),
           ),
         ],
       ),
@@ -466,8 +472,10 @@ class _WorkerCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
-      child: Container(
-        decoration: BoxDecoration(
+      child: Stack(
+        children: [
+          Container(
+      decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected ? Colors.blue[300]! : Colors.white24,
@@ -582,6 +590,28 @@ class _WorkerCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+          if (isSelected)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.blue,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.withValues(alpha: 0.3),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.check, color: Colors.white, size: 16),
+              ),
+            ),
+        ],
       ),
     );
   }

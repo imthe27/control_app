@@ -11,7 +11,7 @@ void main() {
   runApp(const MainApp());
 }
 
-const String baseUrlProd = 'https://4d0a-187-190-78-179.ngrok-free.app';
+const String baseUrlProd = 'https://perky-unendable-marcy.ngrok-free.dev';
 const String baseUrlDev = 'http://192.168.1.7:8000';
 final String baseUrl = kDebugMode ? baseUrlDev : baseUrlProd;
 
