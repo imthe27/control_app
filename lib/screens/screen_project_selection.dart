@@ -38,6 +38,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
   final TextEditingController _addressController = TextEditingController();
   File? _pickedImage;
   bool _isSaving = false;
+  bool isLoading = true;
   Set<int> selectedIndexes = {};
 
   @override
@@ -47,19 +48,30 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
   }
 
   Future<void> fetchProjects() async {
-    final response = await http.get(u('/projects'));
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final prefs = await SharedPreferences.getInstance();
-      final pinned = prefs.getStringList('pinned_projects') ?? [];
-      setState(() {
-        pinnedProjectNames = pinned.toSet();
-        projects = List<Map<String, dynamic>>.from(data).map((proj) {
-          proj['isPinned'] = pinnedProjectNames.contains(proj['name']);
-          return proj;
-        }).toList();
-        projects.sort((a, b) => (b['isPinned'] ? 1 : 0) - (a['isPinned'] ? 1 : 0));
-      });
+    try {
+      final response = await http.get(u('/projects'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final prefs = await SharedPreferences.getInstance();
+        final pinned = prefs.getStringList('pinned_projects') ?? [];
+        setState(() {
+          pinnedProjectNames = pinned.toSet();
+          projects = List<Map<String, dynamic>>.from(data).map((proj) {
+            proj['isPinned'] = pinnedProjectNames.contains(proj['name']);
+            return proj;
+          }).toList();
+          projects.sort((a, b) =>
+          (b['isPinned'] ? 1 : 0) - (a['isPinned'] ? 1 : 0));
+          isLoading = false;
+        });
+      } else {
+        throw Exception('Error al cargar las obras');
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Error al cargar las obras'),
+          backgroundColor: Colors.red));
     }
   }
 
@@ -299,12 +311,41 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.yellow),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'CARGANDO OBRAS . . .',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('OBRAS'),
         flexibleSpace: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,

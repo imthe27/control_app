@@ -366,7 +366,7 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
           decoration: BoxDecoration(color: Colors.blue[50]),
           children: [
             _tableCell('NOMBRE', bold: true),
-            _tableCell('PROYECTO', bold: true),
+            _tableCell('OBRA', bold: true),
             ...List.generate(_dateStrs.length, (i) {
               final dayNum = _dateStrs[i].split('-').last;
               return _tableCell(

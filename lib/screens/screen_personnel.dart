@@ -49,7 +49,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
     } catch (e) {
       print('Error al cargar trabajadores: $e');
       setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al cargar trabajadores')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al cargar trabajadores'), backgroundColor: Colors.red));
     }
   }
 
@@ -298,7 +298,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         ),
         child: RefreshIndicator(
           displacement: 60,
-          edgeOffset: 120,
+          edgeOffset: 72,
           onRefresh: _onRefresh,
           child: Column(
             children: [
@@ -364,8 +364,6 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                                 ? selectedIndexes.remove(index)
                                 : selectedIndexes.add(index);
                           });
-                        } else {
-                          _showWorkerDetails(worker);
                         }
                       },
                       onLongPress: () {
@@ -392,64 +390,64 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
     );
   }
 
-  //Widget _filterChip(String label, String value) {
-  //  final isSelected = roleFilter == value;
-  //  return Padding(
-  //    padding: const EdgeInsets.only(right: 8),
-  //    child: FilterChip(
-  //      label: Text(
-  //        label,
-  //        style: TextStyle(
-  //          color: isSelected ? Colors.white : Colors.grey[700],
-  //          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-  //        ),
-  //      ),
-  //      selected: isSelected,
-  //      onSelected: (selected) {
-  //        setState(() => roleFilter = selected ? value : 'Todos');
-  //      },
-  //      backgroundColor: Colors.white54,
-  //      selectedColor: const Color(0xFF1C1CF0),
-  //    ),
-  //  );
-  //}
+//  Widget _filterChip(String label, String value) {
+//    final isSelected = roleFilter == value;
+//    return Padding(
+//      padding: const EdgeInsets.only(right: 8),
+//      child: FilterChip(
+//        label: Text(
+//          label,
+//          style: TextStyle(
+//            color: isSelected ? Colors.white : Colors.grey[700],
+//            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+//          ),
+//        ),
+//        selected: isSelected,
+//        onSelected: (selected) {
+//          setState(() => roleFilter = selected ? value : 'Todos');
+//        },
+//        backgroundColor: Colors.white54,
+//        selectedColor: const Color(0xFF1C1CF0),
+//      ),
+//    );
+//  }
 
-  void _showWorkerDetails(Worker worker) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: CircleAvatar(
-                radius: 40,
-                backgroundImage:
-                worker.photoUrl != null ? CachedNetworkImageProvider(worker.photoUrl!) : null,
-                child: worker.photoUrl == null
-                    ? Text(
-                  _getInitials(worker.name),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                )
-                    : null,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(worker.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text(worker.project),
-            Text('Rol: ${worker.role}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('CERRAR'),
-          ),
-        ],
-      ),
-    );
-  }
+//  void _showWorkerDetails(Worker worker) {
+//    showDialog(
+//      context: context,
+//      builder: (_) => AlertDialog(
+//        content: Column(
+//          mainAxisSize: MainAxisSize.min,
+//          crossAxisAlignment: CrossAxisAlignment.start,
+//          children: [
+//            Center(
+//              child: CircleAvatar(
+//                radius: 40,
+//                backgroundImage:
+//                worker.photoUrl != null ? CachedNetworkImageProvider(worker.photoUrl!) : null,
+//                child: worker.photoUrl == null
+//                    ? Text(
+//                  _getInitials(worker.name),
+//                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+//                )
+//                    : null,
+//              ),
+//            ),
+//            const SizedBox(height: 16),
+//            Text(worker.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+//            Text(worker.project),
+//            Text('Rol: ${worker.role}'),
+//          ],
+//        ),
+//        actions: [
+//          TextButton(
+//            onPressed: () => Navigator.pop(context),
+//            child: const Text('CERRAR'),
+//          ),
+//        ],
+//      ),
+//    );
+//  }
 }
 
 class _WorkerCard extends StatelessWidget {

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'screens/screen_splash.dart';
 import 'screens/screen_home.dart';
@@ -21,7 +22,16 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ControlApp',
+      title: 'COTELSA',
+      theme: ThemeData(
+        scaffoldBackgroundColor: const Color(0xFF1C1CF0),
+        useMaterial3: true,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+          }
+        )
+      ),
       debugShowCheckedModeBanner: false,
       initialRoute: '/splash',
       routes: {

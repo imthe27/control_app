@@ -24,6 +24,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
   int get currentProjectId => widget.projectId;
   Set<int> selectedIndexes = {};
   bool isSaving = false;
+  bool isLoading = true;
 
   @override
   void initState() {
@@ -76,8 +77,10 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
       setState(() {
         allWorkers = list;
         selectedWorkers = filtered;
+        isLoading = false;
       });
     } catch (e) {
+      isLoading = false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error de red/parseo: $e')),
       );
@@ -276,6 +279,34 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
     final todayKey = _formatDate(selectedDate);
     allAttendance[todayKey] ??= {for (var w in selectedWorkers) w['name']: '0'};
     allExtras[todayKey] ??= {for (var w in selectedWorkers) w['name']: '0'};
+    if (isLoading) {
+      return Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.yellow),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'CARGANDO PERSONAL . . .',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -298,11 +329,6 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
               tooltip: 'INCAPACIDAD',
               icon: const Icon(Icons.local_hospital),
               onPressed: () => _applyStatusToSelected('INC'),
-            ),
-            IconButton(
-              tooltip: 'PRESENTE',
-              icon: const Icon(Icons.check_circle),
-              onPressed: () => _applyStatusToSelected('1'),
             ),
             IconButton(
               tooltip: 'LIMPIAR',
