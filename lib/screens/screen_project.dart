@@ -1,126 +1,373 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'screen_project_selection.dart' show resolvePhotoUrl;
+import 'screen_record_attendance.dart';
 
-class ProjectScreen extends StatelessWidget {
-  final int projectId;
-  final String projectName;
+/// Project detail hub: INFO | CATÁLOGO | BITÁCORA
+/// Phase 1: INFO tab functional, the other two are placeholders.
+class ProjectDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> project;
 
-  const ProjectScreen({
-    super.key,
-    required this.projectId,
-    required this.projectName,
+  const ProjectDetailScreen({super.key, required this.project});
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(project['name'] ?? 'OBRA'),
+          titleTextStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+          backgroundColor: const Color(0xFF1C1CF0),
+          iconTheme: const IconThemeData(color: Colors.white),
+          elevation: 0,
+          bottom: const TabBar(
+            indicatorColor: Colors.white,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white60,
+            labelStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            tabs: [
+              Tab(text: 'INFO'),
+              Tab(text: 'CATÁLOGO'),
+              Tab(text: 'BITÁCORA'),
+            ],
+          ),
+        ),
+        body: Container(
+          constraints: const BoxConstraints.expand(),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+            ),
+          ),
+          child: TabBarView(
+            children: [
+              _InfoTab(project: project),
+              const _ComingSoonTab(
+                icon: Icons.menu_book,
+                message: 'CATÁLOGO DE CONCEPTOS',
+              ),
+              const _ComingSoonTab(
+                icon: Icons.edit_note,
+                message: 'BITÁCORA DE OBRA',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// INFO tab
+// ============================================================
+class _InfoTab extends StatelessWidget {
+  final Map<String, dynamic> project;
+
+  const _InfoTab({required this.project});
+
+  String _fmtDate(String? iso) {
+    if (iso == null || iso.isEmpty) return '';
+    try {
+      return DateFormat('dd/MM/yyyy').format(DateTime.parse(iso));
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  String _fmtMoney(dynamic amount) {
+    if (amount == null) return '';
+    final value = (amount as num).toDouble();
+    return NumberFormat.currency(locale: 'es_MX', symbol: '\$').format(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photoUrl = resolvePhotoUrl(project['photo_url']);
+    final progress = ((project['progress'] ?? 0) as num).toDouble().clamp(0.0, 1.0);
+    final status = (project['status'] ?? '').toString();
+    final isFinished = status.toLowerCase().contains('termin') ||
+        status.toLowerCase().contains('finish');
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // ---------- Photo header ----------
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SizedBox(
+            height: 170,
+            width: double.infinity,
+            child: photoUrl != null
+                ? CachedNetworkImage(
+              imageUrl: photoUrl,
+              fit: BoxFit.cover,
+              placeholder: (context, url) =>
+              const Center(child: CircularProgressIndicator(color: Colors.white)),
+              errorWidget: (context, url, error) => Image.asset(
+                'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
+                fit: BoxFit.cover,
+              ),
+            )
+                : Image.asset(
+              'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // ---------- Status + progress ----------
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'AVANCE',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[600],
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isFinished ? Colors.green[50] : Colors.orange[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        status.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isFinished ? Colors.green[800] : Colors.orange[800],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 10,
+                          backgroundColor: Colors.grey[200],
+                          color: const Color(0xFF1C1CF0),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${(progress * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1C1CF0),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // ---------- Contract info ----------
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                _InfoRow(
+                  icon: Icons.business,
+                  label: 'CLIENTE',
+                  value: project['client_name'],
+                ),
+                _InfoRow(
+                  icon: Icons.description,
+                  label: 'CONTRATO',
+                  value: project['contract_name'],
+                ),
+                _InfoRow(
+                  icon: Icons.tag,
+                  label: 'NO. DE CONTRATO',
+                  value: project['contract_number'],
+                ),
+                _InfoRow(
+                  icon: Icons.attach_money,
+                  label: 'MONTO',
+                  value: _fmtMoney(project['contract_amount']),
+                ),
+                _InfoRow(
+                  icon: Icons.event,
+                  label: 'INICIO',
+                  value: _fmtDate(project['start_date']),
+                ),
+                _InfoRow(
+                  icon: Icons.event_available,
+                  label: 'TÉRMINO',
+                  value: _fmtDate(project['end_date']),
+                ),
+                _InfoRow(
+                  icon: Icons.location_on,
+                  label: 'DIRECCIÓN',
+                  value: project['address'],
+                ),
+                _InfoRow(
+                  icon: Icons.engineering,
+                  label: 'ENCARGADO',
+                  value: project['encargado_username'],
+                  isLast: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // ---------- Quick action: attendance ----------
+        SizedBox(
+          height: 52,
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF1C1CF0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 2,
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RecordAttendanceScreen(projectId: project['id']),
+                ),
+              );
+            },
+            icon: const Icon(Icons.checklist),
+            label: const Text(
+              'PASE DE LISTA',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+/// One labeled row of the info card. Shows 'SIN REGISTRAR' when empty.
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final dynamic value;
+  final bool isLast;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.isLast = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cards = [
-      {'title': 'Asistencia', 'icon': Icons.person, 'color': Colors.blue[100]},
-      {'title': '-', 'icon': Icons.work, 'color': Colors.blue[100]},
-      {'title': '-', 'icon': Icons.check_circle, 'color': Colors.blue[100]},
-      {'title': '=', 'icon': Icons.add_circle, 'color': Colors.blue[100]},
-    ];
+    final text = (value == null || value.toString().trim().isEmpty)
+        ? null
+        : value.toString();
 
-    return Scaffold(
-      appBar: AppBar(title: Text(projectName)),
-      body: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: GridView.builder(
-          itemCount: cards.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.2,
-          ),
-          itemBuilder: (context, index) {
-            final card = cards[index];
-            return GestureDetector(
-              onTap: () {
-                switch (index) {
-                  case 0:
-                    Navigator.pushNamed(
-                        context,
-                        '/attendance',
-                        arguments: {'projectId': projectId},
-                    );
-                    break;
-                  case 1:
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 10),
-                            Text("En proceso"),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
-                        ],
-                      ),
-                    );
-                    break;
-                  case 2:
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 10),
-                            Text("En proceso"),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
-                        ],
-                      ),
-                    );
-                    break;
-                  case 3:
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 10),
-                            Text("En proceso"),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
-                        ],
-                      ),
-                    );
-                    break;
-                }
-              },
-              child: Container(
-                decoration: BoxDecoration(
-                  color: card['color'] as Color?,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                padding: const EdgeInsets.all(16),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 20, color: const Color(0xFF1C1CF0)),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(card['icon'] as IconData, size: 36, color: Colors.black54),
-                    const SizedBox(height: 12),
                     Text(
-                      card['title'] as String,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[600],
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      text ?? 'SIN REGISTRAR',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: text != null ? FontWeight.w500 : FontWeight.normal,
+                        fontStyle: text != null ? FontStyle.normal : FontStyle.italic,
+                        color: text != null ? Colors.black87 : Colors.grey[400],
+                      ),
                     ),
                   ],
                 ),
               ),
-            );
-          },
+            ],
+          ),
         ),
+        if (!isLast) Divider(height: 1, color: Colors.grey[200]),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// Placeholder for CATÁLOGO and BITÁCORA (phases 2 and 3)
+// ============================================================
+class _ComingSoonTab extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _ComingSoonTab({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 64, color: Colors.white38),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

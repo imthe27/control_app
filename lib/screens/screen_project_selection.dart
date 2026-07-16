@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'screen_project.dart';
+import 'screen_project_form.dart';
 import 'screen_record_attendance.dart';
 import 'package:control_app/main.dart' show baseUrl;
 
@@ -34,10 +34,6 @@ class ProjectSelectionScreen extends StatefulWidget {
 class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
   List<Map<String, dynamic>> projects = [];
   Set<String> pinnedProjectNames = {};
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _addressController = TextEditingController();
-  File? _pickedImage;
-  bool _isSaving = false;
   bool isLoading = true;
   Set<int> selectedIndexes = {};
 
@@ -75,19 +71,19 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
     }
   }
 
-  Future<String?> uploadImage(File imageFile) async {
-    final request = http.MultipartRequest(
-      'POST',
-      u('/upload-photo/'),
+  /// Opens the full-screen create/edit form. Refreshes the list when
+  /// the form pops with a successful save.
+  Future<void> _openProjectForm({Map<String, dynamic>? projectToEdit}) async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProjectFormScreen(projectToEdit: projectToEdit),
+      ),
     );
-    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
-    final response = await request.send();
-    if (response.statusCode == 200) {
-      final responseData = await response.stream.bytesToString();
-      final data = jsonDecode(responseData);
-      return data['url'];
+    if (saved == true) {
+      setState(() => selectedIndexes.clear());
+      await fetchProjects();
     }
-    return null;
   }
 
   Future<void> togglePin(String projectName, bool isPinned) async {
@@ -98,215 +94,6 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
       pinnedProjectNames.remove(projectName);
     }
     await prefs.setStringList('pinned_projects', pinnedProjectNames.toList());
-  }
-
-  Future<void> deleteOldImage(String? photoUrl) async {
-    if (photoUrl == null || photoUrl.isEmpty) return;
-
-    try {
-      // Extract filename from URL (handles both /media/filename and full URLs)
-      final uri = Uri.parse(photoUrl);
-      final pathSegments = uri.pathSegments;
-      final filename = pathSegments.isNotEmpty ? pathSegments.last : null;
-
-      if (filename == null || filename.isEmpty) {
-        print("Could not extract filename from: $photoUrl");
-        return;
-      }
-
-      // NOTE: trailing slash matters! The API route is "/delete-photo/".
-      // Without it, FastAPI answers with a 307 redirect that Dart's http
-      // client does NOT follow for DELETE — so the file was never deleted.
-      final deleteUrl =
-      u('/delete-photo/?filename=${Uri.encodeQueryComponent(filename)}');
-      final response = await http.delete(deleteUrl);
-
-      if (response.statusCode == 200) {
-        print("Old image deleted: $filename");
-      } else {
-        print("Failed to delete old image: ${response.body}");
-      }
-    } catch (e) {
-      print("Error deleting old image: $e");
-    }
-  }
-
-  Future<bool> _updateProject(int projectId, Map<String, dynamic> updates) async {
-    final response = await http.put(
-      u('/projects/$projectId'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(updates),
-    );
-
-    if (!mounted) return response.statusCode == 200;
-    if (response.statusCode == 200) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Proyecto actualizado')),
-      );
-      await fetchProjects();
-      return true;
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al actualizar: ${response.body}')),
-      );
-      return false;
-    }
-  }
-
-  void _showAddProjectDialog({Map<String, dynamic>? projectToEdit}) {
-    _nameController.text = projectToEdit?['name'] ?? '';
-    _addressController.text = projectToEdit?['address'] ?? '';
-    _pickedImage = null;
-    _isSaving = false;
-
-    showDialog(
-      context: context,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return AlertDialog(
-              title: Text(projectToEdit == null ? 'NUEVA OBRA' : 'EDITAR OBRA'),
-              content: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () async {
-                        final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-                        if (picked != null) {
-                          setModalState(() {
-                            _pickedImage = File(picked.path);
-                          });
-                        }
-                      },
-                      child: CircleAvatar(
-                        radius: 40,
-                        backgroundImage: _pickedImage != null ? FileImage(_pickedImage!) : null,
-                        child: _pickedImage == null ? const Icon(Icons.camera_alt) : null,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'NOMBRE DE LA OBRA'),
-                    ),
-                    TextField(
-                      controller: _addressController,
-                      decoration: const InputDecoration(labelText: 'DIRECCIÓN'),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
-                ElevatedButton(
-                  onPressed: _isSaving
-                      ? null
-                      : () async {
-                    final name = _nameController.text.trim();
-                    final address = _addressController.text.trim();
-
-                    if (name.isEmpty || address.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Por favor completa todos los campos')),
-                      );
-                      return;
-                    }
-
-                    setModalState(() => _isSaving = true);
-
-                    try {
-                      String? photoUrl;
-
-                      // 1. Upload the new image FIRST (if one was picked).
-                      //    We don't touch the old image yet — if this
-                      //    upload fails, the project keeps its old photo.
-                      if (_pickedImage != null) {
-                        photoUrl = await uploadImage(_pickedImage!);
-                        if (photoUrl == null) {
-                          if (!mounted) return;
-                          setModalState(() => _isSaving = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Error al subir la imagen')),
-                          );
-                          return;
-                        }
-                      }
-
-                      if (projectToEdit != null) {
-                        // 2. EDIT: always send photo_url. If no new image
-                        //    was picked, resend the existing one so the
-                        //    backend never receives null (which used to
-                        //    wipe the photo). The backend normalizes any
-                        //    URL form down to the bare filename.
-                        final ok = await _updateProject(projectToEdit['id'], {
-                          'name': name,
-                          'address': address,
-                          'status': projectToEdit['status'] ?? 'EN PROCESO',
-                          'progress': projectToEdit['progress'] ?? 0.6,
-                          'photo_url': photoUrl ?? projectToEdit['photo_url'],
-                        });
-
-                        // 3. Only delete the old image AFTER the update
-                        //    succeeded, and only if it was replaced.
-                        if (ok && photoUrl != null) {
-                          await deleteOldImage(projectToEdit['photo_url']);
-                        }
-
-                        if (!ok) {
-                          if (!mounted) return;
-                          setModalState(() => _isSaving = false);
-                          return;
-                        }
-                      } else {
-                        // CREATE
-                        final response = await http.post(
-                          u('/projects'),
-                          headers: {'Content-Type': 'application/json'},
-                          body: jsonEncode({
-                            'name': name,
-                            'status': 'EN PROCESO',
-                            'progress': 0.6,
-                            'address': address,
-                            if (photoUrl != null) 'photo_url': photoUrl,
-                          }),
-                        );
-
-                        if (response.statusCode != 200 && response.statusCode != 201) {
-                          if (!mounted) return;
-                          setModalState(() => _isSaving = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error al crear: ${response.body}')),
-                          );
-                          return;
-                        }
-
-                        await fetchProjects();
-                      }
-
-                      if (!mounted) return;
-                      Navigator.pop(context);
-                    } catch (e) {
-                      if (!mounted) return;
-                      setModalState(() => _isSaving = false);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')),
-                      );
-                    }
-                  },
-                  child: _isSaving
-                      ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.yellow),
-                  )
-                      : Text(projectToEdit == null ? 'AGREGAR' : 'GUARDAR'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
   @override
@@ -365,7 +152,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
               IconButton(
                 icon: const Icon(Icons.edit),
                 color: Colors.white,
-                onPressed: () => _showAddProjectDialog(
+                onPressed: () => _openProjectForm(
                   projectToEdit: projects[selectedIndexes.first],
                 ),
               ),
@@ -414,10 +201,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => RecordAttendanceScreen(
-                        projectId: project['id'],
-                        //projectName: project['name'], to use when the project screen works
-                      ),
+                      builder: (_) => ProjectDetailScreen(project: project),
                     ),
                   );
                 }
@@ -494,6 +278,37 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
                               ),
                             ),
                           ),
+                          // Quick action: jump straight to attendance
+                          Positioned(
+                            bottom: 10,
+                            right: 10,
+                            child: Material(
+                              color: Colors.white,
+                              shape: const CircleBorder(),
+                              elevation: 3,
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => RecordAttendanceScreen(
+                                        projectId: project['id'],
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Padding(
+                                  padding: EdgeInsets.all(10),
+                                  child: Icon(
+                                    Icons.checklist,
+                                    color: Color(0xFF1C1CF0),
+                                    size: 24,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       Padding(
@@ -532,7 +347,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddProjectDialog,
+        onPressed: _openProjectForm,
         tooltip: 'AGREGAR OBRA',
         child: const Icon(Icons.add),
       ),

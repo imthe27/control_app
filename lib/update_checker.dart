@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:open_file/open_file.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:control_app/main.dart' show baseUrl;
 
 /// Checks the server for a newer APK and guides the user through the update.
@@ -175,7 +176,22 @@ class UpdateChecker {
 
       if (context.mounted) Navigator.pop(context); // close progress dialog
 
-      // 5. Launch the Android installer.
+      // 5. Request & verify Installation permission
+      var status = await Permission.requestInstallPackages.status;
+      if (!status.isGranted) {
+        status = await Permission.requestInstallPackages.request();
+        }
+      if (!status.isGranted) {
+        if (context.mounted) {
+          _snack(
+            context,
+            'Activa "Instalar apps desconocidas" para esta app y vuelve a intentar',
+          );
+        }
+        return;
+      }
+
+      // 6. Launch the Android installer.
       // First time, Android will ask to allow installs from this app.
       final result = await OpenFile.open(file.path);
       if (result.type != ResultType.done && context.mounted) {
