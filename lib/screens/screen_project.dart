@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'screen_project_selection.dart' show resolvePhotoUrl;
+import 'screen_logbook.dart';
 import 'screen_record_attendance.dart';
 
 /// Project detail hub: INFO | CATÁLOGO | BITÁCORA
@@ -55,11 +56,7 @@ class ProjectDetailScreen extends StatelessWidget {
             children: [
               _InfoTab(project: project),
               _CatalogTab(project: project),
-              const _ComingSoonTab(
-                icon: Icons.edit_note,
-                message: 'BITÁCORA DE OBRA',
-                subtitle: '',
-              ),
+              LogbookTab(project: project),
             ],
           ),
         ),
@@ -374,7 +371,7 @@ with AutomaticKeepAliveClientMixin {
   }
   
   Future<void> _load() async {
-    final url = resolvePhotoUrl(widget.project['catalo_pdf']);
+    final url = resolvePhotoUrl(widget.project['catalog_pdf']);
     if (url == null) return;
 
     setState(() {
@@ -507,6 +504,7 @@ with AutomaticKeepAliveClientMixin {
     );
   }
 }
+
 // ============================================================
 // Placeholder for CATÁLOGO and BITÁCORA (phases 2 and 3)
 // ============================================================
@@ -537,6 +535,11 @@ class _ComingSoonTab extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: const TextStyle(color: Colors.white38, fontSize: 13),
+          )
         ],
       ),
     );

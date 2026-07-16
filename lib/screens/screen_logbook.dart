@@ -1,0 +1,1140 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'screen_project_selection.dart' show resolvePhotoUrl;
+import 'package:control_app/main.dart' show baseUrl;
+
+Uri _u(String path) => Uri.parse('$baseUrl$path');
+
+Future<Map<String, String>> _authHeaders() async {
+  const storage = FlutterSecureStorage();
+  final token = await storage.read(key: 'auth_token');
+  return {
+    'Content-Type': 'application/json',
+    if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
+  };
+}
+
+// ============================================================
+// BITÁCORA tab (lives inside ProjectDetailScreen)
+// ============================================================
+class LogbookTab extends StatefulWidget {
+  final Map<String, dynamic> project;
+
+  const LogbookTab({super.key, required this.project});
+
+  @override
+  State<LogbookTab> createState() => _LogbookTabState();
+}
+
+class _LogbookTabState extends State<LogbookTab>
+    with AutomaticKeepAliveClientMixin {
+  List<Map<String, dynamic>> _notes = [];
+  List<Map<String, dynamic>> _partidas = [];
+  bool _loading = true;
+  bool _canWrite = false;
+  String _username = '';
+  bool _isAdmin = false;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  int get _projectId => widget.project['id'];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final headers = await _authHeaders();
+      final results = await Future.wait([
+        http.get(_u('/projects/$_projectId/notes')),
+        http.get(_u('/projects/$_projectId/partidas')),
+        http.get(_u('/me'), headers: headers),
+      ]);
+
+      if (!mounted) return;
+
+      final notes = results[0].statusCode == 200
+          ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(results[0].bodyBytes)))
+          : <Map<String, dynamic>>[];
+      final partidas = results[1].statusCode == 200
+          ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(results[1].bodyBytes)))
+          : <Map<String, dynamic>>[];
+
+      var canWrite = false;
+      var username = '';
+      var isAdmin = false;
+      if (results[2].statusCode == 200) {
+        final me = jsonDecode(results[2].body) as Map<String, dynamic>;
+        username = (me['username'] ?? '').toString();
+        isAdmin = me['is_admin'] == true;
+        canWrite = isAdmin ||
+            (username.isNotEmpty &&
+                username == widget.project['encargado_username']);
+      }
+
+      setState(() {
+        _notes = notes;
+        _partidas = partidas;
+        _canWrite = canWrite;
+        _username = username;
+        _isAdmin = isAdmin;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _openNoteForm() async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteFormScreen(
+          projectId: _projectId,
+          partidas: _partidas,
+        ),
+      ),
+    );
+    if (saved == true) _load();
+  }
+
+  Future<void> _openPartidasManager() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PartidasManagerScreen(projectId: _projectId),
+      ),
+    );
+    _load(); // partidas may have changed
+  }
+
+  Future<void> _deleteNote(Map<String, dynamic> note) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('BORRAR NOTA'),
+        content: const Text('¿Seguro que quieres borrar esta nota? Sus fotos también se eliminarán.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCELAR'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('BORRAR'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      final headers = await _authHeaders();
+      final resp = await http.delete(_u('/notes/${note['id']}'), headers: headers);
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo borrar (HTTP ${resp.statusCode})'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
+
+    return Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: _load,
+          child: _notes.isEmpty
+              ? ListView(
+            // ListView so pull-to-refresh works on the empty state too
+            children: [
+              if (_canWrite)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                      ),
+                      onPressed: _openPartidasManager,
+                      icon: const Icon(Icons.format_list_numbered, size: 18),
+                      label: const Text('PARTIDAS'),
+                    ),
+                  ),
+                ),
+              SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+              const Icon(Icons.edit_note, size: 64, color: Colors.white38),
+              const SizedBox(height: 16),
+              const Center(
+                child: Text(
+                  'SIN NOTAS AÚN',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (_canWrite)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Usa el botón + para agregar la primera',
+                      style: TextStyle(color: Colors.white38, fontSize: 13),
+                    ),
+                  ),
+                ),
+            ],
+          )
+              : ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            itemCount: _notes.length + (_canWrite ? 1 : 0),
+            itemBuilder: (context, index) {
+              // First row: partidas shortcut for writers
+              if (_canWrite && index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                      ),
+                      onPressed: _openPartidasManager,
+                      icon: const Icon(Icons.format_list_numbered, size: 18),
+                      label: const Text('PARTIDAS'),
+                    ),
+                  ),
+                );
+              }
+              final note = _notes[_canWrite ? index - 1 : index];
+              final canDelete = _isAdmin || note['author'] == _username;
+              return _NoteCard(
+                note: note,
+                onDelete: canDelete ? () => _deleteNote(note) : null,
+              );
+            },
+          ),
+        ),
+        if (_canWrite)
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: FloatingActionButton(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF1C1CF0),
+              onPressed: _openNoteForm,
+              child: const Icon(Icons.add),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// One note in the feed
+// ============================================================
+class _NoteCard extends StatelessWidget {
+  final Map<String, dynamic> note;
+  final VoidCallback? onDelete;
+
+  const _NoteCard({required this.note, this.onDelete});
+
+  String _fmtDate(String? iso) {
+    if (iso == null) return '';
+    try {
+      return DateFormat('dd/MM/yyyy · HH:mm').format(DateTime.parse(iso));
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photos = List<String>.from(note['photos'] ?? []);
+    final partidaName = note['partida_name'];
+    final partidaCode = note['partida_code'];
+    final text = (note['note_text'] ?? '').toString();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ---------- Header: partida chip + date + delete ----------
+            Row(
+              children: [
+                if (partidaName != null)
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1C1CF0).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        partidaCode != null
+                            ? '$partidaCode · $partidaName'
+                            : partidaName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1C1CF0),
+                        ),
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                Text(
+                  _fmtDate(note['created_at']),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+                if (onDelete != null)
+                  GestureDetector(
+                    onTap: onDelete,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Icon(Icons.delete_outline,
+                          size: 18, color: Colors.grey[400]),
+                    ),
+                  ),
+              ],
+            ),
+
+            // ---------- Text ----------
+            if (text.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(text, style: const TextStyle(fontSize: 14, height: 1.4)),
+            ],
+
+            // ---------- Photos ----------
+            if (photos.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 6,
+                ),
+                itemCount: photos.length,
+                itemBuilder: (context, i) {
+                  final url = resolvePhotoUrl(photos[i]);
+                  if (url == null) return const SizedBox();
+                  return GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => _GalleryScreen(
+                          photos: photos
+                              .map(resolvePhotoUrl)
+                              .whereType<String>()
+                              .toList(),
+                          initialIndex: i,
+                        ),
+                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: CachedNetworkImage(
+                        imageUrl: url,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) =>
+                            Container(color: Colors.grey[200]),
+                        errorWidget: (context, url, error) => Container(
+                          color: Colors.grey[200],
+                          child: const Icon(Icons.broken_image,
+                              color: Colors.grey),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+
+            // ---------- Author ----------
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(Icons.person, size: 14, color: Colors.grey[500]),
+                const SizedBox(width: 4),
+                Text(
+                  (note['author'] ?? '').toString(),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// Full-screen photo gallery
+// ============================================================
+class _GalleryScreen extends StatelessWidget {
+  final List<String> photos;
+  final int initialIndex;
+
+  const _GalleryScreen({required this.photos, required this.initialIndex});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: PageView.builder(
+        controller: PageController(initialPage: initialIndex),
+        itemCount: photos.length,
+        itemBuilder: (context, i) => InteractiveViewer(
+          maxScale: 5,
+          child: Center(
+            child: CachedNetworkImage(
+              imageUrl: photos[i],
+              fit: BoxFit.contain,
+              placeholder: (context, url) => const CircularProgressIndicator(
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// New note form
+// ============================================================
+class NoteFormScreen extends StatefulWidget {
+  final int projectId;
+  final List<Map<String, dynamic>> partidas;
+
+  const NoteFormScreen({
+    super.key,
+    required this.projectId,
+    required this.partidas,
+  });
+
+  @override
+  State<NoteFormScreen> createState() => _NoteFormScreenState();
+}
+
+class _NoteFormScreenState extends State<NoteFormScreen> {
+  final _textController = TextEditingController();
+  int? _partidaId;
+  final List<File> _photos = [];
+  bool _isSaving = false;
+  late List<Map<String, dynamic>> _partidas;
+
+  @override
+  void initState() {
+    super.initState();
+    _partidas = List.of(widget.partidas);
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  Future<void> _addFromCamera() async {
+    final picked = await ImagePicker()
+        .pickImage(source: ImageSource.camera, imageQuality: 80);
+    if (picked != null) {
+      setState(() => _photos.add(File(picked.path)));
+    }
+  }
+
+  Future<void> _addFromGallery() async {
+    final picked = await ImagePicker().pickMultiImage(imageQuality: 80);
+    if (picked.isNotEmpty) {
+      setState(() => _photos.addAll(picked.map((x) => File(x.path))));
+    }
+  }
+
+  Future<String?> _uploadPhoto(File file) async {
+    final request = http.MultipartRequest('POST', _u('/upload-photo/'));
+    request.files.add(await http.MultipartFile.fromPath('file', file.path));
+    final response = await request.send();
+    if (response.statusCode == 200) {
+      final body = jsonDecode(await response.stream.bytesToString());
+      return body['filename'];
+    }
+    return null;
+  }
+
+  Future<void> _createPartidaDialog() async {
+    final codeController = TextEditingController();
+    final nameController = TextEditingController();
+
+    final create = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('NUEVA PARTIDA'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 64,
+                  child: TextField(
+                    controller: codeController,
+                    decoration: const InputDecoration(
+                      labelText: 'NO.',
+                      labelStyle: TextStyle(fontSize: 12),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: nameController,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'NOMBRE',
+                      labelStyle: TextStyle(fontSize: 12),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCELAR'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1C1CF0),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('CREAR'),
+          ),
+        ],
+      ),
+    );
+
+    if (create != true) return;
+    final name = nameController.text.trim();
+    if (name.isEmpty) {
+      _showError('Escribe el nombre de la partida');
+      return;
+    }
+
+    try {
+      final headers = await _authHeaders();
+      final resp = await http.post(
+        _u('/projects/${widget.projectId}/partidas'),
+        headers: headers,
+        body: jsonEncode({
+          'code': codeController.text.trim().isEmpty
+              ? null
+              : codeController.text.trim(),
+          'name': name,
+        }),
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        final nueva = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        setState(() {
+          _partidas.add(nueva);
+          _partidaId = nueva['id']; // select it right away
+        });
+      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
+        _showError('No tienes permiso para crear partidas');
+      } else {
+        _showError('Error al crear la partida (HTTP ${resp.statusCode})');
+      }
+    } catch (e) {
+      _showError('Error: $e');
+    }
+  }
+
+  Future<void> _save() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty && _photos.isEmpty) {
+      _showError('Escribe algo o agrega al menos una foto');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      // 1. Upload photos
+      final filenames = <String>[];
+      for (final photo in _photos) {
+        final fn = await _uploadPhoto(photo);
+        if (fn == null) {
+          setState(() => _isSaving = false);
+          _showError('Error al subir una de las fotos');
+          return;
+        }
+        filenames.add(fn);
+      }
+
+      // 2. Create the note
+      final headers = await _authHeaders();
+      final response = await http.post(
+        _u('/projects/${widget.projectId}/notes'),
+        headers: headers,
+        body: jsonEncode({
+          'partida_id': _partidaId,
+          'note_text': text,
+          'photos': filenames,
+        }),
+      );
+
+      if (!mounted) return;
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        Navigator.pop(context, true);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() => _isSaving = false);
+        _showError('No tienes permiso para escribir en esta bitácora');
+      } else {
+        setState(() => _isSaving = false);
+        _showError('Error al guardar (HTTP ${response.statusCode})');
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+      _showError('Error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('NUEVA NOTA'),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
+        backgroundColor: const Color(0xFF1C1CF0),
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: Container(
+        constraints: const BoxConstraints.expand(),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+          ),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // ---------- Partida ----------
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int?>(
+                          value: _partidaId,
+                          isExpanded: true,
+                          hint: const Text('PARTIDA (OPCIONAL)'),
+                          items: [
+                            const DropdownMenuItem<int?>(
+                              value: null,
+                              child: Text('SIN PARTIDA'),
+                            ),
+                            ..._partidas.map(
+                                  (p) => DropdownMenuItem<int?>(
+                                    value: p['id'],
+                                    child: Text(
+                                      p['code'] != null
+                                          ? '${p['code']} · ${p['name']}'
+                                          : p['name'],
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                            ),
+                          ],
+                          onChanged: (v) => setState(() => _partidaId = v),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'NUEVA PARTIDA',
+                      onPressed: _createPartidaDialog,
+                      icon: const Icon(Icons.add_circle_outline,
+                          color: Color(0xFF1C1CF0)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ---------- Text ----------
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: TextField(
+                  controller: _textController,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    hintText: 'AGREGAR NOTA...',
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ---------- Photos ----------
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'FOTOS',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey[600],
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ..._photos.asMap().entries.map(
+                              (entry) => Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.file(
+                                  entry.value,
+                                  width: 84,
+                                  height: 84,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: GestureDetector(
+                                  onTap: () => setState(
+                                          () => _photos.removeAt(entry.key)),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.black54,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.close,
+                                        size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Add buttons
+                        _AddPhotoButton(
+                          icon: Icons.photo_camera,
+                          onTap: _addFromCamera,
+                        ),
+                        _AddPhotoButton(
+                          icon: Icons.photo_library,
+                          onTap: _addFromGallery,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // ---------- Save ----------
+            SizedBox(
+              height: 52,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF1C1CF0),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 2,
+                ),
+                onPressed: _isSaving ? null : _save,
+                icon: _isSaving
+                    ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF1C1CF0),
+                  ),
+                )
+                    : const Icon(Icons.save),
+                label: Text(
+                  _isSaving ? 'GUARDANDO...' : 'GUARDAR NOTA',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddPhotoButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _AddPhotoButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 84,
+        height: 84,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: const Color(0xFF1C1CF0)),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// Partidas manager
+// ============================================================
+class PartidasManagerScreen extends StatefulWidget {
+  final int projectId;
+
+  const PartidasManagerScreen({super.key, required this.projectId});
+
+  @override
+  State<PartidasManagerScreen> createState() => _PartidasManagerScreenState();
+}
+
+class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
+  List<Map<String, dynamic>> _partidas = [];
+  final _codeController = TextEditingController();
+  final _nameController = TextEditingController();
+  bool _loading = true;
+  bool _adding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final resp = await http.get(_u('/projects/${widget.projectId}/partidas'));
+      if (!mounted) return;
+      setState(() {
+        _partidas = resp.statusCode == 200
+            ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(resp.bodyBytes)))
+            : [];
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  Future<void> _add() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _showError('Escribe el nombre de la partida');
+      return;
+    }
+
+    setState(() => _adding = true);
+    try {
+      final headers = await _authHeaders();
+      final resp = await http.post(
+        _u('/projects/${widget.projectId}/partidas'),
+        headers: headers,
+        body: jsonEncode({
+          'code': _codeController.text.trim().isEmpty
+              ? null
+              : _codeController.text.trim(),
+          'name': name,
+        }),
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        _codeController.clear();
+        _nameController.clear();
+        await _load();
+      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
+        _showError('No tienes permiso para gestionar las partidas');
+      } else {
+        _showError('Error al agregar (HTTP ${resp.statusCode})');
+      }
+    } catch (e) {
+      _showError('Error: $e');
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> partida) async {
+    try {
+      final headers = await _authHeaders();
+      final resp =
+      await http.delete(_u('/partidas/${partida['id']}'), headers: headers);
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        _load();
+      } else {
+        _showError('No se pudo borrar (HTTP ${resp.statusCode})');
+      }
+    } catch (e) {
+      _showError('Error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('PARTIDAS'),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
+        backgroundColor: const Color(0xFF1C1CF0),
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: Container(
+        constraints: const BoxConstraints.expand(),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+          ),
+        ),
+        child: Column(
+          children: [
+            // ---------- Add row ----------
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Card(
+                shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 64,
+                        child: TextField(
+                          controller: _codeController,
+                          decoration: const InputDecoration(
+                            labelText: 'NO.',
+                            labelStyle: TextStyle(fontSize: 12),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _nameController,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: 'NOMBRE DE LA PARTIDA',
+                            labelStyle: TextStyle(fontSize: 12),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _adding
+                          ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                          : IconButton(
+                        onPressed: _add,
+                        icon: const Icon(Icons.add_circle,
+                            color: Color(0xFF1C1CF0), size: 30),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // ---------- List ----------
+            Expanded(
+              child: _loading
+                  ? const Center(
+                  child: CircularProgressIndicator(color: Colors.white))
+                  : _partidas.isEmpty
+                  ? const Center(
+                child: Text(
+                  'SIN PARTIDAS\nAgrega la primera arriba',
+                  textAlign: TextAlign.center,
+                  style:
+                  TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              )
+                  : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                itemCount: _partidas.length,
+                itemBuilder: (context, i) {
+                  final p = _partidas[i];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      dense: true,
+                      leading: p['code'] != null
+                          ? CircleAvatar(
+                        radius: 16,
+                        backgroundColor: const Color(0xFF1C1CF0)
+                            .withValues(alpha: 0.1),
+                        child: Text(
+                          p['code'],
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1C1CF0),
+                          ),
+                        ),
+                      )
+                          : const Icon(Icons.label_outline,
+                          color: Color(0xFF1C1CF0)),
+                      title: Text(
+                        p['name'] ?? '',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w500),
+                      ),
+                      trailing: IconButton(
+                        icon: Icon(Icons.delete_outline,
+                            color: Colors.grey[400]),
+                        onPressed: () => _delete(p),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
