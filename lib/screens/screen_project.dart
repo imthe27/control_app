@@ -1,6 +1,10 @@
+import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'screen_record_attendance.dart';
 
@@ -50,13 +54,11 @@ class ProjectDetailScreen extends StatelessWidget {
           child: TabBarView(
             children: [
               _InfoTab(project: project),
-              const _ComingSoonTab(
-                icon: Icons.menu_book,
-                message: 'CATÁLOGO DE CONCEPTOS',
-              ),
+              _CatalogTab(project: project),
               const _ComingSoonTab(
                 icon: Icons.edit_note,
                 message: 'BITÁCORA DE OBRA',
+                subtitle: '',
               ),
             ],
           ),
@@ -345,11 +347,179 @@ class _InfoRow extends StatelessWidget {
 // ============================================================
 // Placeholder for CATÁLOGO and BITÁCORA (phases 2 and 3)
 // ============================================================
+class _CatalogTab extends StatefulWidget {
+  final Map<String, dynamic> project;
+  
+  const _CatalogTab({required this.project});
+  
+  @override
+  State<_CatalogTab> createState() => _CatalogTabState();
+}
+
+class _CatalogTabState extends State<_CatalogTab>
+with AutomaticKeepAliveClientMixin {
+  String? _localPath;
+  bool _loading = false;
+  String? _error;
+  int _pages = 0;
+  int _currentPage = 0;
+  
+  @override
+  bool get wantKeepAlive => true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+  
+  Future<void> _load() async {
+    final url = resolvePhotoUrl(widget.project['catalo_pdf']);
+    if (url == null) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      // cache by filename: a new catalog gets a new uuid filename,
+      // so the cache busts itself automatically.
+      final filename = Uri.parse (url).pathSegments.last;
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/catalogs/$filename');
+
+      if (!await file.exists()) {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode != 200) {
+          throw Exception('HTTP ${response.statusCode}');
+        }
+        await file.create(recursive: true);
+        await file.writeAsBytes(response.bodyBytes);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _localPath = file.path;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'No se pudo cargar el catálogo';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final hasCatalog = resolvePhotoUrl(widget.project['catalog_pdf']) != null;
+
+    if (!hasCatalog) {
+      return const _ComingSoonTab(
+        icon: Icons.picture_as_pdf,
+        message: 'SIN CATÁLOGO',
+        subtitle: 'Agrégalo desde EDITAR OBRA',
+      );
+    }
+
+    if (_loading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'DESCARGANDO CATÁLOGO...',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white54, size: 48),
+            const SizedBox(height: 12),
+            Text(_error!,
+                style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF1C1CF0),
+              ),
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('REINTENTAR'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_localPath == null) return const SizedBox();
+
+    return Stack(
+      children: [
+        Container(
+          color: Colors.white,
+          child: PDFView(
+            filePath: _localPath!,
+            enableSwipe: true,
+            swipeHorizontal: false,
+            autoSpacing: true,
+            pageFling: false,
+            onRender: (pages) => setState(() => _pages = pages ?? 0),
+            onPageChanged: (page, _) =>
+                setState(() => _currentPage = page ?? 0),
+            onError: (e) => setState(() => _error = 'Error al mostrar el PDF'),
+          ),
+        ),
+        if (_pages > 0)
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${_currentPage + 1} / $_pages',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+// ============================================================
+// Placeholder for CATÁLOGO and BITÁCORA (phases 2 and 3)
+// ============================================================
 class _ComingSoonTab extends StatelessWidget {
   final IconData icon;
   final String message;
+  final String subtitle;
 
-  const _ComingSoonTab({required this.icon, required this.message});
+  const _ComingSoonTab({
+    required this.icon,
+    required this.message,
+    required this.subtitle,
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'package:control_app/main.dart' show baseUrl;
@@ -32,6 +33,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
   File? _pickedImage;
+  File? _pickedCatalog;
   bool _isSaving = false;
 
   bool get isEditing => widget.projectToEdit != null;
@@ -78,6 +80,18 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
     return t.isEmpty ? null : t;
   }
 
+  String? _catalogLabel() {
+    if (_pickedCatalog != null) {
+      return _pickedCatalog!.path.split('/').last.split('\\').last;
+    }
+    final existing = widget.projectToEdit?['catalog.pdf'];
+    if (existing != null && existing.toString().isNotEmpty) {
+      final name = Uri.parse(existing.toString()).pathSegments.lastOrNull;
+      return name ?? existing.toString();
+    }
+    return null;
+  }
+
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -90,6 +104,17 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   Future<String?> _uploadImage(File imageFile) async {
     final request = http.MultipartRequest('POST', _u('/upload-photo/'));
     request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+    final response = await request.send();
+    if (response.statusCode == 200) {
+      final body = jsonDecode(await response.stream.bytesToString());
+      return body['filename'];
+    }
+    return null;
+  }
+
+  Future<String?> _uploadCatalog(File pdfFile) async {
+    final request = http.MultipartRequest('POST', _u('/upload-catalog'));
+    request.files.add(await http.MultipartFile.fromPath('file', pdfFile.path));
     final response = await request.send();
     if (response.statusCode == 200) {
       final body = jsonDecode(await response.stream.bytesToString());
@@ -113,9 +138,10 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
     }
   }
 
-  Map<String, dynamic> _payload(String? photoFilename) {
+  Map<String, dynamic> _payload(String? photoFilename, String? catalogFilename) {
     final p = widget.projectToEdit;
     return {
+      'catalog_pdf': catalogFilename ?? p?['catalog_pdf'],
       'name': _nameController.text.trim(),
       'address': _addressController.text.trim(),
       'status': p?['status'] ?? 'EN PROCESO',
@@ -154,19 +180,29 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
         }
       }
 
+      String? catalogFilename;
+      if (_pickedCatalog != null) {
+        catalogFilename = await _uploadCatalog(_pickedCatalog!);
+        if (catalogFilename == null) {
+          setState(() => _isSaving = false);
+          _showError('Error al subir el catálogo');
+          return;
+        }
+      }
+
       // 2. Create or update
       final http.Response response;
       if (isEditing) {
         response = await http.put(
           _u('/projects/${widget.projectToEdit!['id']}'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(_payload(photoFilename)),
+          body: jsonEncode(_payload(photoFilename, catalogFilename)),
         );
       } else {
         response = await http.post(
           _u('/projects'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(_payload(photoFilename)),
+          body: jsonEncode(_payload(photoFilename, catalogFilename)),
         );
       }
 
@@ -179,6 +215,9 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
       // 3. Delete the replaced image only after a successful save
       if (isEditing && photoFilename != null) {
         await _deleteOldImage(widget.projectToEdit!['photo_url']);
+      }
+      if (isEditing && catalogFilename != null) {
+        await _deleteOldImage(widget.projectToEdit!['catalog_pdf']);
       }
 
       if (!mounted) return;
@@ -340,6 +379,65 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // ---------- Concept catalog ------
+            _SectionCard(
+              title: 'CATALÁGO DE CONCEPTOS',
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () async {
+                      final result = await FilePicker.platform.pickFiles(
+                        type: FileType.custom,
+                        allowedExtensions: ['pdf'],
+                      );
+                      if (result != null && result.files.single.path != null) {
+                        setState(() =>
+                            _pickedCatalog = File(result.files.single.path!));
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 14),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.picture_as_pdf,
+                          color: _catalogLabel() == null
+                          ? Colors.grey[400]
+                          : Colors.red[400]),
+                          const SizedBox(width:12),
+                          Expanded(
+                            child: Text(
+                              _catalogLabel() ?? 'AGREGAR CATÁLOGO',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: _catalogLabel() == null
+                                  ? Colors.grey[500]
+                                    : Colors.black87,
+                                fontWeight: _catalogLabel() == null
+                                  ? FontWeight.normal
+                                    : FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Icon(Icons.upload_file,
+                            size: 20, color: Colors.grey[500]),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
