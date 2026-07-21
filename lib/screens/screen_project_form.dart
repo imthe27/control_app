@@ -6,8 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
-import 'screen_project_selection.dart' show resolvePhotoUrl;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:control_app/main.dart' show baseUrl;
+import 'screen_project_selection.dart' show resolvePhotoUrl;
 
 Uri _u(String path) => Uri.parse('$baseUrl$path');
 
@@ -156,6 +157,55 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
       'start_date': _isoOrNull(_startDate),
       'end_date': _isoOrNull(_endDate),
     };
+  }
+
+  Future<void> _deleteProject() async {
+    final p = widget.projectToEdit!;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('BORRAR OBRA'),
+        content: Text(
+            '¿Borrar "${p['name']}"?\n\nSe borrarán su bitácora, catálogo, avance y asistencias. Los trabajadores quedarán sin obra asignada. Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('CANCELAR')),
+          ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('BORRAR')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _isSaving = true);
+    try {
+      const storage = FlutterSecureStorage();
+      final token = await storage.read(key: 'auth_token');
+      final resp = await http.delete(
+        Uri.parse('$baseUrl/projects/${p['id']}'),
+        headers: {
+          if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
+        },
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        Navigator.pop(context, true);
+      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
+        setState(() => _isSaving = false);
+        _showError('No tienes permiso para borrar esta obra');
+      } else {
+        setState(() => _isSaving = false);
+        _showError('Error al borrar (HTTP ${resp.statusCode})');
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+      _showError('Error: $e');
+    }
   }
 
   Future<void> _save() async {
@@ -486,6 +536,25 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
                 ),
               ),
             ),
+            // ------ delete -------
+            if (isEditing) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: _isSaving ? null : _deleteProject,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('BORRAR OBRA',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
           ],
         ),

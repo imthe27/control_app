@@ -36,6 +36,8 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
   Set<String> pinnedProjectNames = {};
   bool isLoading = true;
   Set<int> selectedIndexes = {};
+  bool _showActive = true;
+  bool _showFinished = false;
 
   @override
   void initState() {
@@ -94,6 +96,180 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
       pinnedProjectNames.remove(projectName);
     }
     await prefs.setStringList('pinned_projects', pinnedProjectNames.toList());
+  }
+
+  Widget _buildProjectCard(int index) {
+    final project = projects[index];
+    final isSelected = selectedIndexes.contains(index);
+
+    return GestureDetector(
+      onTap: () {
+        if (selectedIndexes.isNotEmpty) {
+          setState(() {
+            isSelected ? selectedIndexes.remove(index) : selectedIndexes.add(index);
+          });
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ProjectDetailScreen(project: project),
+            ),
+          );
+        }
+      },
+      onLongPress: () {
+        setState(() {
+          selectedIndexes.add(index);
+        });
+      },
+      child: Card(
+        color: isSelected ? Colors.blue.shade100 : null,
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: InkWell(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    height: 160,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      color: Colors.black,
+                    ),
+                    child: resolvePhotoUrl(project['photo_url']) != null
+                        ? ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      child: CachedNetworkImage(
+                        imageUrl: resolvePhotoUrl(project['photo_url'])!,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => const Center(
+                          child: CircularProgressIndicator(color: Colors.yellow),
+                        ),
+                        errorWidget: (context, url, error) => Image.asset(
+                          'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    )
+                        : ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                      child: Image.asset(
+                        'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    left: 12,
+                    right: 12,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (project['isPinned'] == true)
+                              const Icon(Icons.push_pin, size: 14, color: Colors.yellow),
+                            Expanded(
+                              child: Text(
+                                project['name'],
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Quick action: jump straight to attendance
+                  Positioned(
+                    bottom: 10,
+                    right: 10,
+                    child: Material(
+                      color: Colors.white,
+                      shape: const CircleBorder(),
+                      elevation: 3,
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => RecordAttendanceScreen(
+                                projectId: project['id'],
+                              ),
+                            ),
+                          );
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.all(10),
+                          child: Icon(
+                            Icons.checklist,
+                            color: Color(0xFF1C1CF0),
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 4),
+                    Text(
+                      project['address'] ?? '',
+                      style: const TextStyle(fontSize: 18, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Estado: ${project['status']}',
+                      style: TextStyle(
+                        color: project['status'] == 'Finished' ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    project['progress'] == null
+                        ? Text('AVANCE: N/A — SIN CATÁLOGO',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.grey[500]))
+                        : LinearProgressIndicator(
+                      value: (project['progress'] as num)
+                          .toDouble()
+                          .clamp(0.0, 1.0),
+                      minHeight: 6,
+                      backgroundColor: Colors.grey[300],
+                      color: Colors.blueAccent,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -185,166 +361,69 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
             colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
           ),
         ),
-        child: ListView.builder(
-          itemCount: projects.length,
-          itemBuilder: (context, index) {
-            final project = projects[index];
-            final isSelected = selectedIndexes.contains(index);
+        child: Builder(builder: (context) {
+          bool isFinished(Map<String, dynamic> p) {
+            final s = (p['status'] ?? '').toString().toLowerCase();
+            return s.contains('termin') || s.contains('finish') || s.contains('final');
+          }
 
-            return GestureDetector(
-              onTap: () {
-                if (selectedIndexes.isNotEmpty) {
-                  setState(() {
-                    isSelected ? selectedIndexes.remove(index) : selectedIndexes.add(index);
-                  });
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ProjectDetailScreen(project: project),
+          final activos = <int>[];
+          final finalizados = <int>[];
+          for (var i = 0; i < projects.length; i++) {
+            (isFinished(projects[i]) ? finalizados : activos).add(i);
+          }
+
+          Widget sectionHeader(String title, int count, bool expanded, VoidCallback onTap) {
+            return InkWell(
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: Row(
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
                     ),
-                  );
-                }
-              },
-              onLongPress: () {
-                setState(() {
-                  selectedIndexes.add(index);
-                });
-              },
-              child: Card(
-                color: isSelected ? Colors.blue.shade100 : null,
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                elevation: 3,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: InkWell(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Stack(
-                        children: [
-                          Container(
-                            height: 160,
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                              color: Colors.black,
-                            ),
-                            child: resolvePhotoUrl(project['photo_url']) != null
-                                ? ClipRRect(
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                              child: CachedNetworkImage(
-                                imageUrl: resolvePhotoUrl(project['photo_url'])!,
-                                fit: BoxFit.cover,
-                                placeholder: (context, url) => const Center(
-                                  child: CircularProgressIndicator(color: Colors.yellow),
-                                ),
-                                errorWidget: (context, url, error) => Image.asset(
-                                  'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            )
-                                : ClipRRect(
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                              child: Image.asset(
-                                'assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg',
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 8,
-                            left: 12,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (project['isPinned'] == true)
-                                    const Icon(Icons.push_pin, size: 14, color: Colors.yellow),
-                                  Text(
-                                    project['name'],
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // Quick action: jump straight to attendance
-                          Positioned(
-                            bottom: 10,
-                            right: 10,
-                            child: Material(
-                              color: Colors.white,
-                              shape: const CircleBorder(),
-                              elevation: 3,
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => RecordAttendanceScreen(
-                                        projectId: project['id'],
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: const Padding(
-                                  padding: EdgeInsets.all(10),
-                                  child: Icon(
-                                    Icons.checklist,
-                                    color: Color(0xFF1C1CF0),
-                                    size: 24,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-                            Text(
-                              project['address'] ?? '',
-                              style: const TextStyle(fontSize: 18, color: Colors.black87),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Estado: ${project['status']}',
-                              style: TextStyle(
-                                color: project['status'] == 'Finished' ? Colors.green : Colors.orange,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: (project['progress'] ?? 0).toDouble(),
-                              minHeight: 6,
-                              backgroundColor: Colors.grey[300],
-                              color: Colors.blueAccent,
-                            ),
-                          ],
-                        ),
+                      child: Text(
+                        '$count',
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
                       ),
-                    ],
-                  ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      expanded ? Icons.expand_less : Icons.expand_more,
+                      color: Colors.white70,
+                    ),
+                  ],
                 ),
               ),
             );
-          },
-        ),
+          }
+
+          return ListView(
+            children: [
+              sectionHeader('ACTIVOS', activos.length, _showActive,
+                      () => setState(() => _showActive = !_showActive)),
+              if (_showActive) ...activos.map((i) => _buildProjectCard(i)),
+              sectionHeader('FINALIZADOS', finalizados.length, _showFinished,
+                      () => setState(() => _showFinished = !_showFinished)),
+              if (_showFinished) ...finalizados.map((i) => _buildProjectCard(i)),
+              const SizedBox(height: 80),
+            ],
+          );
+        }),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openProjectForm,

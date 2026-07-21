@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'screen_worker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -226,21 +227,21 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
               colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
             ),
           ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
                 CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.yellow),
                 ),
-                  SizedBox(height: 16),
-                  Text(
-                    'CARGANDO PERSONAL . . .',
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ],
-              ),
+                SizedBox(height: 16),
+                Text(
+                  'CARGANDO PERSONAL . . .',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ],
             ),
+          ),
         ),
       );
     }
@@ -364,6 +365,13 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                                 ? selectedIndexes.remove(index)
                                 : selectedIndexes.add(index);
                           });
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => WorkerDetailScreen(worker: worker),
+                            ),
+                          );
                         }
                       },
                       onLongPress: () {
@@ -473,122 +481,122 @@ class _WorkerCard extends StatelessWidget {
       child: Stack(
         children: [
           Container(
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? Colors.blue[300]! : Colors.white24,
-            width: isSelected ? 2 : 0.5,
-          ),
-          color: isSelected ? Colors.blue[100] : Colors.white.withValues(alpha: 0.95),
-          boxShadow: [
-            BoxShadow(
-              color: isSelected ? Colors.blue.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Expanded(
-              flex: 2,
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  image: worker.photoUrl != null
-                      ? DecorationImage(
-                    image: CachedNetworkImageProvider(worker.photoUrl!),
-                    fit: BoxFit.cover,
-                  )
-                      : null,
-                  color: const Color(0xFF1C1CF0),
-                ),
-                child: worker.photoUrl == null
-                    ? Center(
-                  child: Container(
-                    width: 90,
-                    height: 90,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.blue[400],
-                    ),
-                    child: Center(
-                      child: Text(
-                        initials,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-                    : null,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected ? Colors.blue[300]! : Colors.white24,
+                width: isSelected ? 2 : 0.5,
               ),
+              color: isSelected ? Colors.blue[100] : Colors.white.withValues(alpha: 0.95),
+              boxShadow: [
+                BoxShadow(
+                  color: isSelected ? Colors.blue.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-            Expanded(
-              flex: 1,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          worker.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
+            child: Column(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                      image: worker.photoUrl != null
+                          ? DecorationImage(
+                        image: CachedNetworkImageProvider(worker.photoUrl!),
+                        fit: BoxFit.cover,
+                      )
+                          : null,
+                      color: const Color(0xFF1C1CF0),
+                    ),
+                    child: worker.photoUrl == null
+                        ? Center(
+                      child: Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.blue[400],
+                        ),
+                        child: Center(
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        //Text(
-                        //  worker.role.toUpperCase(),
-                        //  maxLines: 1,
-                        //  overflow: TextOverflow.ellipsis,
-                        //  style: TextStyle(
-                        //    fontSize: 11,
-                        //    fontWeight: FontWeight.w500,
-                        //    color: Colors.grey[600],
-                        //    letterSpacing: 0.5,
-                        //  ),
-                        //),
+                      ),
+                    )
+                        : null,
+                  ),
+                ),
+                Expanded(
+                  flex: 1,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              worker.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            //Text(
+                            //  worker.role.toUpperCase(),
+                            //  maxLines: 1,
+                            //  overflow: TextOverflow.ellipsis,
+                            //  style: TextStyle(
+                            //    fontSize: 11,
+                            //    fontWeight: FontWeight.w500,
+                            //    color: Colors.grey[600],
+                            //    letterSpacing: 0.5,
+                            //  ),
+                            //),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.blue[200]!, width: 0.5),
+                          ),
+                          child: Text(
+                            worker.project.length > 15
+                                ? '${worker.project.substring(0, 12)}...'
+                                : worker.project,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.blue[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.blue[50],
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.blue[200]!, width: 0.5),
-                      ),
-                      child: Text(
-                        worker.project.length > 15
-                            ? '${worker.project.substring(0, 12)}...'
-                            : worker.project,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.blue[700],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
           if (isSelected)
             Positioned(
               top: 8,
