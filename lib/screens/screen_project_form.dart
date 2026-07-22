@@ -4,7 +4,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:control_app/main.dart' show baseUrl;
@@ -79,18 +78,6 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   String? _textOrNull(TextEditingController c) {
     final t = c.text.trim();
     return t.isEmpty ? null : t;
-  }
-
-  String? _catalogLabel() {
-    if (_pickedCatalog != null) {
-      return _pickedCatalog!.path.split('/').last.split('\\').last;
-    }
-    final existing = widget.projectToEdit?['catalog.pdf'];
-    if (existing != null && existing.toString().isNotEmpty) {
-      final name = Uri.parse(existing.toString()).pathSegments.lastOrNull;
-      return name ?? existing.toString();
-    }
-    return null;
   }
 
   void _showError(String message) {
@@ -429,65 +416,6 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
                       ),
                     ),
                   ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // ---------- Concept catalog ------
-            _SectionCard(
-              title: 'CATALÁGO DE CONCEPTOS',
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: () async {
-                      final result = await FilePicker.platform.pickFiles(
-                        type: FileType.custom,
-                        allowedExtensions: ['pdf'],
-                      );
-                      if (result != null && result.files.single.path != null) {
-                        setState(() =>
-                            _pickedCatalog = File(result.files.single.path!));
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.picture_as_pdf,
-                          color: _catalogLabel() == null
-                          ? Colors.grey[400]
-                          : Colors.red[400]),
-                          const SizedBox(width:12),
-                          Expanded(
-                            child: Text(
-                              _catalogLabel() ?? 'AGREGAR CATÁLOGO',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: _catalogLabel() == null
-                                  ? Colors.grey[500]
-                                    : Colors.black87,
-                                fontWeight: _catalogLabel() == null
-                                  ? FontWeight.normal
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                          Icon(Icons.upload_file,
-                            size: 20, color: Colors.grey[500]),
-                        ],
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),

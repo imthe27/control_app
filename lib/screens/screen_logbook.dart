@@ -68,7 +68,8 @@ class _LogbookTabState extends State<LogbookTab>
       if (!mounted) return;
 
       final notes = results[0].statusCode == 200
-          ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(results[0].bodyBytes)))
+          ? List<Map<String, dynamic>>.from(
+          jsonDecode(utf8.decode(results[0].bodyBytes)))
           : <Map<String, dynamic>>[];
       // sync-from-catalog returns the partidas list; if it fails (no write
       // permission), fall back to a plain GET so readers still see them.
@@ -79,11 +80,13 @@ class _LogbookTabState extends State<LogbookTab>
       } else {
         final pg = await http.get(_u('/projects/$_projectId/partidas'));
         partidas = pg.statusCode == 200
-            ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(pg.bodyBytes)))
+            ? List<Map<String, dynamic>>.from(
+            jsonDecode(utf8.decode(pg.bodyBytes)))
             : <Map<String, dynamic>>[];
       }
       final catalog = results[3].statusCode == 200
-          ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(results[3].bodyBytes)))
+          ? List<Map<String, dynamic>>.from(
+          jsonDecode(utf8.decode(results[3].bodyBytes)))
           : <Map<String, dynamic>>[];
 
       var canWrite = false;
@@ -117,15 +120,33 @@ class _LogbookTabState extends State<LogbookTab>
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => NoteFormScreen(
-          projectId: _projectId,
-          partidas: _partidas,
-          catalog: _catalog,
-          noteToEdit: noteToEdit,
-        ),
+        builder: (_) =>
+            NoteFormScreen(
+              projectId: _projectId,
+              partidas: _partidas,
+              catalog: _catalog,
+              noteToEdit: noteToEdit,
+            ),
       ),
     );
     if (saved == true) _load();
+  }
+
+  Future<void> _openNoteDetail(
+      Map<String, dynamic> note, bool canManage) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteDetailScreen(
+          note: note,
+          projectId: _projectId,
+          partidas: _partidas,
+          catalog: _catalog,
+          canManage: canManage,
+        ),
+      ),
+    );
+    if (changed == true) _load();
   }
 
   /// Bottom sheet with note options (edit / delete).
@@ -135,39 +156,40 @@ class _LogbookTabState extends State<LogbookTab>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
+      builder: (ctx) =>
+          SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Color(0xFF1C1CF0)),
+                  title: const Text('EDITAR NOTA'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openNoteForm(noteToEdit: note);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('BORRAR NOTA'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _deleteNote(note);
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.edit, color: Color(0xFF1C1CF0)),
-              title: const Text('EDITAR NOTA'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openNoteForm(noteToEdit: note);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('BORRAR NOTA'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteNote(note);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -184,31 +206,35 @@ class _LogbookTabState extends State<LogbookTab>
   Future<void> _deleteNote(Map<String, dynamic> note) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('BORRAR NOTA'),
-        content: const Text('¿Seguro que quieres borrar esta nota? Sus fotos también se eliminarán.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('CANCELAR'),
+      builder: (ctx) =>
+          AlertDialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            title: const Text('BORRAR NOTA'),
+            content: const Text(
+                '¿Seguro que quieres borrar esta nota? Sus fotos también se eliminarán.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('CANCELAR'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('BORRAR'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('BORRAR'),
-          ),
-        ],
-      ),
     );
     if (confirm != true) return;
 
     try {
       final headers = await _authHeaders();
-      final resp = await http.delete(_u('/notes/${note['id']}'), headers: headers);
+      final resp = await http.delete(
+          _u('/notes/${note['id']}'), headers: headers);
       if (!mounted) return;
       if (resp.statusCode == 200) {
         _load();
@@ -286,7 +312,10 @@ class _LogbookTabState extends State<LogbookTab>
                     ],
                   ),
                 ),
-              SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+              SizedBox(height: MediaQuery
+                  .of(context)
+                  .size
+                  .height * 0.2),
               const Icon(Icons.edit_note, size: 64, color: Colors.white38),
               const SizedBox(height: 16),
               const Center(
@@ -315,7 +344,8 @@ class _LogbookTabState extends State<LogbookTab>
             final filtered = _filterPartidaId == null
                 ? _notes
                 : _notes
-                .where((n) => _filterPartidaId == -1
+                .where((n) =>
+            _filterPartidaId == -1
                 ? n['partida_id'] == null
                 : n['partida_id'] == _filterPartidaId)
                 .toList();
@@ -349,12 +379,13 @@ class _LogbookTabState extends State<LogbookTab>
                           children: [
                             _filterChip('TODAS', null),
                             _filterChip('SIN PARTIDA', -1),
-                            ..._partidas.map((p) => _filterChip(
-                              p['code'] != null
-                                  ? '${p['code']} · ${p['name']}'
-                                  : p['name'],
-                              p['id'],
-                            )),
+                            ..._partidas.map((p) =>
+                                _filterChip(
+                                  p['code'] != null
+                                      ? '${p['code']} · ${p['name']}'
+                                      : p['name'],
+                                  p['id'],
+                                )),
                           ],
                         ),
                       ),
@@ -379,6 +410,7 @@ class _LogbookTabState extends State<LogbookTab>
                 return _NoteCard(
                   note: note,
                   onMenu: canManage ? () => _noteMenu(note) : null,
+                  onTap: () => _openNoteDetail(note, canManage),
                 );
               },
             );
@@ -406,8 +438,9 @@ class _LogbookTabState extends State<LogbookTab>
 class _NoteCard extends StatelessWidget {
   final Map<String, dynamic> note;
   final VoidCallback? onMenu;
+  final VoidCallback? onTap;
 
-  const _NoteCard({required this.note, this.onMenu});
+  const _NoteCard({required this.note, this.onMenu, this.onTap});
 
   String _fmtDate(String? iso) {
     if (iso == null) return '';
@@ -418,131 +451,191 @@ class _NoteCard extends StatelessWidget {
     }
   }
 
+  String _fmtQty(dynamic q) {
+    final d = (q as num?)?.toDouble() ?? 0;
+    return d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(2);
+  }
+
   @override
   Widget build(BuildContext context) {
     final photos = List<String>.from(note['photos'] ?? []);
     final partidaName = note['partida_name'];
     final partidaCode = note['partida_code'];
     final text = (note['note_text'] ?? '').toString();
+    final avance = note['avance'] as Map<String, dynamic>?;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ---------- Header: partida chip + date + delete ----------
-            Row(
+        margin: const EdgeInsets.only(bottom: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (partidaName != null)
-                  Flexible(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1C1CF0).withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        partidaCode != null
-                            ? '$partidaCode · $partidaName'
-                            : partidaName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1C1CF0),
+                // ---------- Header: partida chip + date + delete ----------
+                Row(
+                  children: [
+                    if (partidaName != null)
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1C1CF0).withValues(
+                                alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            partidaCode != null
+                                ? '$partidaCode · $partidaName'
+                                : partidaName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1C1CF0),
+                            ),
+                          ),
                         ),
                       ),
+                    const Spacer(),
+                    Text(
+                      _fmtDate(note['created_at']),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                     ),
-                  ),
-                const Spacer(),
-                Text(
-                  _fmtDate(note['created_at']),
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                ),
-                if (onMenu != null)
-                  GestureDetector(
-                    onTap: onMenu,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Icon(Icons.more_vert,
-                          size: 18, color: Colors.grey[500]),
-                    ),
-                  ),
-              ],
-            ),
-
-            // ---------- Text ----------
-            if (text.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(text, style: const TextStyle(fontSize: 14, height: 1.4)),
-            ],
-
-            // ---------- Photos ----------
-            if (photos.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 6,
-                  mainAxisSpacing: 6,
-                ),
-                itemCount: photos.length,
-                itemBuilder: (context, i) {
-                  final url = resolvePhotoUrl(photos[i]);
-                  if (url == null) return const SizedBox();
-                  return GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _GalleryScreen(
-                          photos: photos
-                              .map(resolvePhotoUrl)
-                              .whereType<String>()
-                              .toList(),
-                          initialIndex: i,
+                    if (onMenu != null)
+                      GestureDetector(
+                        onTap: onMenu,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Icon(Icons.more_vert,
+                              size: 18, color: Colors.grey[500]),
                         ),
                       ),
-                    ),
-                    child: ClipRRect(
+                  ],
+                ),
+
+                // ------- avance -------
+                if (avance != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(8),
-                      child: CachedNetworkImage(
-                        imageUrl: url,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) =>
-                            Container(color: Colors.grey[200]),
-                        errorWidget: (context, url, error) => Container(
-                          color: Colors.grey[200],
-                          child: const Icon(Icons.broken_image,
-                              color: Colors.grey),
-                        ),
-                      ),
+                      border: Border.all(
+                          color: Colors.green.withValues(alpha: 0.25)),
                     ),
-                  );
-                },
-              ),
-            ],
+                    child: Row(
+                      children: [
+                        const Icon(Icons.trending_up,
+                            size: 15, color: Color(0xFF2E7D32)),
+                        const SizedBox(width: 6),
+                        Text(
+                          '+${_fmtQty(avance['quantity'])}'
+                              '${avance['unit'] != null
+                              ? ' ${avance['unit']}'
+                              : ''}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF2E7D32),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            avance['code'] != null
+                                ? '${avance['code']} · ${avance['name']}'
+                                : (avance['name'] ?? '').toString(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey[700]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
-            // ---------- Author ----------
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Icon(Icons.person, size: 14, color: Colors.grey[500]),
-                const SizedBox(width: 4),
-                Text(
-                  (note['author'] ?? '').toString(),
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                // ---------- Text ----------
+                if (text.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(text, style: const TextStyle(fontSize: 14, height: 1.4)),
+                ],
+
+                // ---------- Photos ----------
+                if (photos.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 6,
+                      mainAxisSpacing: 6,
+                    ),
+                    itemCount: photos.length,
+                    itemBuilder: (context, i) {
+                      final url = resolvePhotoUrl(photos[i]);
+                      if (url == null) return const SizedBox();
+                      return GestureDetector(
+                        onTap: () =>
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    _GalleryScreen(
+                                      photos: photos
+                                          .map(resolvePhotoUrl)
+                                          .whereType<String>()
+                                          .toList(),
+                                      initialIndex: i,
+                                    ),
+                              ),
+                            ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: url,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) =>
+                                Container(color: Colors.grey[200]),
+                            errorWidget: (context, url, error) =>
+                                Container(
+                                  color: Colors.grey[200],
+                                  child: const Icon(Icons.broken_image,
+                                      color: Colors.grey),
+                                ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+
+                // ---------- Author ----------
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(Icons.person, size: 14, color: Colors.grey[500]),
+                    const SizedBox(width: 4),
+                    Text(
+                      (note['author'] ?? '').toString(),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
-      ),
     );
   }
 }
@@ -568,17 +661,482 @@ class _GalleryScreen extends StatelessWidget {
       body: PageView.builder(
         controller: PageController(initialPage: initialIndex),
         itemCount: photos.length,
-        itemBuilder: (context, i) => InteractiveViewer(
-          maxScale: 5,
-          child: Center(
-            child: CachedNetworkImage(
-              imageUrl: photos[i],
-              fit: BoxFit.contain,
-              placeholder: (context, url) => const CircularProgressIndicator(
-                color: Colors.white,
+        itemBuilder: (context, i) =>
+            InteractiveViewer(
+              maxScale: 5,
+              child: Center(
+                child: CachedNetworkImage(
+                  imageUrl: photos[i],
+                  fit: BoxFit.contain,
+                  placeholder: (context, url) =>
+                  const CircularProgressIndicator(
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// photo grid: max 4 tiles in a square, +N overlay
+// ============================================================
+class _PhotoGrid extends StatelessWidget {
+  final List<String> photos;
+  final void Function(int index) onTap;
+
+  const _PhotoGrid({required this.photos, required this.onTap});
+
+  static const double _gap = 2;
+
+  Widget _tile(int i, {String? overlay}) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onTap(i),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CachedNetworkImage(
+              imageUrl: photos[i],
+              fit: BoxFit.cover,
+              placeholder: (c, u) => Container(color: Colors.grey[300]),
+              errorWidget: (c, u, e) => Container(
+                color: Colors.grey[300],
+                child: const Icon(Icons.broken_image, color: Colors.grey),
+              ),
+            ),
+            if (overlay != null)
+              Container(
+                color: Colors.black.withValues(alpha: 0.45),
+                alignment: Alignment.center,
+                child: Text(
+                  overlay,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = photos.length;
+    late Widget content;
+
+    if (n == 1) {
+      content = Row(children: [_tile(0)]);
+    } else if (n == 2) {
+      // Two halves, side by side
+      content = Row(children: [
+        _tile(0),
+        const SizedBox(width: _gap),
+        _tile(1),
+      ]);
+    } else if (n == 3) {
+      // One tall left + two stacked right
+      content = Row(children: [
+        _tile(0),
+        const SizedBox(width: _gap),
+        Expanded(
+          child: Column(children: [
+            _tile(1),
+            const SizedBox(height: _gap),
+            _tile(2),
+          ]),
+        ),
+      ]);
+    } else {
+      // 2x2; the 4th carries "+N" when there are extras
+      final extra = n - 4;
+      content = Column(children: [
+        Expanded(
+          child: Row(children: [
+            _tile(0),
+            const SizedBox(width: _gap),
+            _tile(1),
+          ]),
+        ),
+        const SizedBox(height: _gap),
+        Expanded(
+          child: Row(children: [
+            _tile(2),
+            const SizedBox(width: _gap),
+            _tile(3, overlay: extra > 0 ? '+$extra' : null),
+          ]),
+        ),
+      ]);
+    }
+
+    return AspectRatio(aspectRatio: 1, child: content);
+  }
+}
+
+// ============================================================
+// note details and content
+// ============================================================
+class NoteDetailScreen extends StatefulWidget {
+  final Map<String, dynamic> note;
+  final int projectId;
+  final List<Map<String, dynamic>> partidas;
+  final List<Map<String, dynamic>> catalog;
+  final bool canManage;
+
+  const NoteDetailScreen({
+    super.key,
+    required this.note,
+    required this.projectId,
+    required this.partidas,
+    required this.catalog,
+    required this.canManage,
+  });
+
+  @override
+  State<NoteDetailScreen> createState() => _NoteDetailScreenState();
+}
+
+class _NoteDetailScreenState extends State<NoteDetailScreen> {
+  bool _busy = false;
+
+  String _fmtDate(String? iso) {
+    if (iso == null) return '';
+    try {
+      return DateFormat('dd/MM/yyyy · HH:mm').format(DateTime.parse(iso));
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  String _fmtQty(dynamic q) {
+    final d = (q as num?)?.toDouble() ?? 0;
+    return d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(2);
+  }
+
+  Future<void> _edit() async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            NoteFormScreen(
+              projectId: widget.projectId,
+              partidas: widget.partidas,
+              catalog: widget.catalog,
+              noteToEdit: widget.note,
+            ),
+      ),
+    );
+    // Data changed: go back to the feed, which reloads
+    if (saved == true && mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) =>
+          AlertDialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            title: const Text('BORRAR NOTA'),
+            content: const Text(
+                '¿Borrar esta nota? También se borrarán sus fotos y el avance que registró.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('CANCELAR')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red, foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('BORRAR'),
+              ),
+            ],
           ),
+    );
+    if (ok != true) return;
+
+    setState(() => _busy = true);
+    try {
+      final headers = await _authHeaders();
+      final resp = await http.delete(
+        _u('/notes/${widget.note['id']}'),
+        headers: headers,
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        Navigator.pop(context, true);
+      } else {
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo borrar (HTTP ${resp.statusCode})'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _menu() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) =>
+          SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Color(0xFF1C1CF0)),
+                  title: const Text('EDITAR NOTA'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _edit();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('BORRAR NOTA'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _delete();
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final note = widget.note;
+    final photos = List<String>.from(note['photos'] ?? []);
+    final text = (note['note_text'] ?? '').toString();
+    final avance = note['avance'] as Map<String, dynamic>?;
+    final partidaName = note['partida_name'];
+    final partidaCode = note['partida_code'];
+    final author = (note['author'] ?? '').toString();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('NOTA'),
+        titleTextStyle: const TextStyle(
+            color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+        backgroundColor: const Color(0xFF1C1CF0),
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+        actions: [
+          if (widget.canManage)
+            IconButton(
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onPressed: _busy ? null : _menu,
+            ),
+        ],
+      ),
+      body: Container(
+        constraints: const BoxConstraints.expand(),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
+          ),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // ================= POST =================
+            Card(
+              clipBehavior: Clip.antiAlias, // photos clip to rounded corners
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ---------- Author header ----------
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: const Color(0xFF1C1CF0),
+                          child: Text(
+                            author.isNotEmpty ? author[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                author,
+                                style: const TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.w700),
+                              ),
+                              Text(
+                                _fmtDate(note['created_at']),
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ---------- Partida tag ----------
+                  if (partidaName != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1C1CF0).withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          partidaCode != null
+                              ? '$partidaCode · $partidaName'
+                              : partidaName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1C1CF0),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // ---------- Text ----------
+                  if (text.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                      child: SelectableText(
+                        text,
+                        style: const TextStyle(fontSize: 15, height: 1.45),
+                      ),
+                    ),
+
+                  // ---------- Photos (edge to edge) ----------
+                  if (photos.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _PhotoGrid(
+                      photos: photos,
+                      onTap: (i) => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => _GalleryScreen(
+                            photos: photos,
+                            initialIndex: i,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ] else
+                    const SizedBox(height: 10),
+                ],
+              ),
+            ),
+
+            // ================= AVANCE =================
+            if (avance != null) ...[
+              const SizedBox(height: 12),
+              Card(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.trending_up,
+                              size: 16, color: Color(0xFF2E7D32)),
+                          const SizedBox(width: 6),
+                          Text(
+                            'AVANCE REGISTRADO',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey[600],
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '+${_fmtQty(avance['quantity'])}'
+                                  '${avance['unit'] != null ? ' ${avance['unit']}' : ''}',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF2E7D32),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 22),
+                      if (avance['code'] != null) ...[
+                        Text(
+                          avance['code'].toString(),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1C1CF0),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      // No maxLines: the full concepto is shown
+                      Text(
+                        (avance['name'] ?? '').toString(),
+                        style: const TextStyle(fontSize: 13, height: 1.45),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+          ],
         ),
       ),
     );
@@ -619,11 +1177,12 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
   bool get isEditing => widget.noteToEdit != null;
 
   /// Conceptos belonging to the currently selected partida.
-  List<Map<String, dynamic>> get _conceptosForPartida => _partidaId == null
-      ? const []
-      : widget.catalog
-      .where((c) => c['partida_id'] == _partidaId)
-      .toList();
+  List<Map<String, dynamic>> get _conceptosForPartida =>
+      _partidaId == null
+          ? const []
+          : widget.catalog
+          .where((c) => c['partida_id'] == _partidaId)
+          .toList();
 
   @override
   void initState() {
@@ -707,107 +1266,109 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
 
     final created = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('NUEVA PARTIDA'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (catalog.isNotEmpty) ...[
-                Text('DEL CATÁLOGO',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey[600])),
-                const SizedBox(height: 6),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 240),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: catalog.length,
-                    itemBuilder: (lctx, i) {
-                      final it = catalog[i];
-                      return ListTile(
-                        dense: true,
-                        contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 4),
-                        leading: it['code'] != null
-                            ? Text(it['code'],
-                            style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF1C1CF0)))
-                            : null,
-                        title: Text(it['name'] ?? '',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12)),
-                        onTap: () {
-                          codeController.text = it['code'] ?? '';
-                          nameController.text = it['name'] ?? '';
-                          Navigator.pop(ctx, true);
-                        },
-                      );
-                    },
-                  ),
-                ),
-                const Divider(height: 20),
-                Text('O ESCRÍBELA MANUAL',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey[600])),
-                const SizedBox(height: 6),
-              ],
-              Row(
+      builder: (ctx) =>
+          AlertDialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            title: const Text('NUEVA PARTIDA'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 64,
-                    child: TextField(
-                      controller: codeController,
-                      decoration: const InputDecoration(
-                        labelText: 'NO.',
-                        labelStyle: TextStyle(fontSize: 12),
-                        isDense: true,
+                  if (catalog.isNotEmpty) ...[
+                    Text('DEL CATÁLOGO',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey[600])),
+                    const SizedBox(height: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 240),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: catalog.length,
+                        itemBuilder: (lctx, i) {
+                          final it = catalog[i];
+                          return ListTile(
+                            dense: true,
+                            contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 4),
+                            leading: it['code'] != null
+                                ? Text(it['code'],
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF1C1CF0)))
+                                : null,
+                            title: Text(it['name'] ?? '',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12)),
+                            onTap: () {
+                              codeController.text = it['code'] ?? '';
+                              nameController.text = it['name'] ?? '';
+                              Navigator.pop(ctx, true);
+                            },
+                          );
+                        },
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: nameController,
-                      autofocus: true,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: const InputDecoration(
-                        labelText: 'NOMBRE',
-                        labelStyle: TextStyle(fontSize: 12),
-                        isDense: true,
+                    const Divider(height: 20),
+                    Text('O ESCRÍBELA MANUAL',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey[600])),
+                    const SizedBox(height: 6),
+                  ],
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 64,
+                        child: TextField(
+                          controller: codeController,
+                          decoration: const InputDecoration(
+                            labelText: 'NO.',
+                            labelStyle: TextStyle(fontSize: 12),
+                            isDense: true,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: nameController,
+                          autofocus: true,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: 'NOMBRE',
+                            labelStyle: TextStyle(fontSize: 12),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('CANCELAR'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1C1CF0),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('CREAR'),
+              ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('CANCELAR'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1C1CF0),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('CREAR'),
-          ),
-        ],
-      ),
     );
 
     if (created != true) return;
@@ -823,7 +1384,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         _u('/projects/${widget.projectId}/partidas'),
         headers: headers,
         body: jsonEncode({
-          'code': codeController.text.trim().isEmpty
+          'code': codeController.text
+              .trim()
+              .isEmpty
               ? null
               : codeController.text.trim(),
           'name': name,
@@ -831,7 +1394,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       );
       if (!mounted) return;
       if (resp.statusCode == 200 || resp.statusCode == 201) {
-        final nueva = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        final nueva = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<
+            String,
+            dynamic>;
         setState(() {
           _partidas.add(nueva);
           _partidaId = nueva['id']; // select it right away
@@ -856,7 +1421,8 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     // If a concepto is chosen, its quantity must be valid
     double? avanceQty;
     if (_conceptoId != null) {
-      avanceQty = double.tryParse(_avanceController.text.trim().replaceAll(',', ''));
+      avanceQty =
+          double.tryParse(_avanceController.text.trim().replaceAll(',', ''));
       if (avanceQty == null || avanceQty <= 0) {
         _showError('La cantidad de avance no es válida');
         return;
@@ -881,8 +1447,15 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       // 2. Create or update the note
       final headers = await _authHeaders();
       final keptFilenames = _existingPhotos
-          .map((url) => Uri.parse(url).pathSegments.isNotEmpty
-          ? Uri.parse(url).pathSegments.last
+          .map((url) =>
+      Uri
+          .parse(url)
+          .pathSegments
+          .isNotEmpty
+          ? Uri
+          .parse(url)
+          .pathSegments
+          .last
           : url)
           .toList();
       final body = jsonEncode({
@@ -919,7 +1492,10 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     final match = widget.catalog.where((c) => c['id'] == _conceptoId);
     if (match.isEmpty) return null;
     final u = match.first['unit'];
-    return (u == null || u.toString().trim().isEmpty) ? null : u.toString();
+    return (u == null || u
+        .toString()
+        .trim()
+        .isEmpty) ? null : u.toString();
   }
 
   @override
@@ -949,9 +1525,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             // ---------- Partida ----------
-            // ---------- Partida ----------
             Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Column(
@@ -984,22 +1560,25 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                                   child: Text('SIN PARTIDA'),
                                 ),
                                 ..._partidas.map(
-                                      (p) => DropdownMenuItem<int?>(
-                                    value: p['id'],
-                                    child: Text(
-                                      p['code'] != null
-                                          ? '${p['code']} · ${p['name']}'
-                                          : p['name'],
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
+                                      (p) =>
+                                      DropdownMenuItem<int?>(
+                                        value: p['id'],
+                                        child: Text(
+                                          p['code'] != null
+                                              ? '${p['code']} · ${p['name']}'
+                                              : p['name'],
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
                                 ),
                               ],
-                              onChanged: (v) => setState(() {
-                                _partidaId = v;
-                                _conceptoId = null; // reset concepto on partida change
-                              }),
+                              onChanged: (v) =>
+                                  setState(() {
+                                    _partidaId = v;
+                                    _conceptoId =
+                                    null; // reset concepto on partida change
+                                  }),
                             ),
                           ),
                         ),
@@ -1085,7 +1664,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                               decimal: true),
                           decoration: InputDecoration(
                             labelText: 'CANTIDAD EJECUTADA'
-                                '${_selectedConceptoUnit() != null ? ' (${_selectedConceptoUnit()})' : ''}',
+                                '${_selectedConceptoUnit() != null
+                                ? ' (${_selectedConceptoUnit()})'
+                                : ''}',
                           ),
                         ),
                       ],
@@ -1098,7 +1679,8 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
 
             // ---------- Text ----------
             Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: TextField(
@@ -1115,7 +1697,8 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
 
             // ---------- Photos ----------
             Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -1135,69 +1718,81 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        ..._existingPhotos.asMap().entries.map(
-                              (entry) => Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: CachedNetworkImage(
-                                  imageUrl: entry.value,
-                                  width: 84,
-                                  height: 84,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              Positioned(
-                                top: 2,
-                                right: 2,
-                                child: GestureDetector(
-                                  onTap: () => setState(() =>
-                                      _existingPhotos.removeAt(entry.key)),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(2),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.black54,
-                                      shape: BoxShape.circle,
+                        ..._existingPhotos
+                            .asMap()
+                            .entries
+                            .map(
+                              (entry) =>
+                              Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: CachedNetworkImage(
+                                      imageUrl: entry.value,
+                                      width: 84,
+                                      height: 84,
+                                      fit: BoxFit.cover,
                                     ),
-                                    child: const Icon(Icons.close,
-                                        size: 14, color: Colors.white),
                                   ),
-                                ),
+                                  Positioned(
+                                    top: 2,
+                                    right: 2,
+                                    child: GestureDetector(
+                                      onTap: () =>
+                                          setState(() =>
+                                              _existingPhotos.removeAt(
+                                                  entry.key)),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black54,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(Icons.close,
+                                            size: 14, color: Colors.white),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
                         ),
-                        ..._photos.asMap().entries.map(
-                              (entry) => Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: Image.file(
-                                  entry.value,
-                                  width: 84,
-                                  height: 84,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              Positioned(
-                                top: 2,
-                                right: 2,
-                                child: GestureDetector(
-                                  onTap: () => setState(
-                                          () => _photos.removeAt(entry.key)),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(2),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.black54,
-                                      shape: BoxShape.circle,
+                        ..._photos
+                            .asMap()
+                            .entries
+                            .map(
+                              (entry) =>
+                              Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.file(
+                                      entry.value,
+                                      width: 84,
+                                      height: 84,
+                                      fit: BoxFit.cover,
                                     ),
-                                    child: const Icon(Icons.close,
-                                        size: 14, color: Colors.white),
                                   ),
-                                ),
+                                  Positioned(
+                                    top: 2,
+                                    right: 2,
+                                    child: GestureDetector(
+                                      onTap: () =>
+                                          setState(
+                                                  () =>
+                                                  _photos.removeAt(entry.key)),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black54,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(Icons.close,
+                                            size: 14, color: Colors.white),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
                         ),
                         // Add buttons
                         _AddPhotoButton(
@@ -1342,7 +1937,8 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
       if (!mounted) return;
       setState(() {
         _partidas = resp.statusCode == 200
-            ? List<Map<String, dynamic>>.from(jsonDecode(utf8.decode(resp.bodyBytes)))
+            ? List<Map<String, dynamic>>.from(
+            jsonDecode(utf8.decode(resp.bodyBytes)))
             : [];
         _loading = false;
       });
@@ -1374,7 +1970,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
         _u('/projects/${widget.projectId}/partidas'),
         headers: headers,
         body: jsonEncode({
-          'code': _codeController.text.trim().isEmpty
+          'code': _codeController.text
+              .trim()
+              .isEmpty
               ? null
               : _codeController.text.trim(),
           'name': name,
@@ -1395,6 +1993,171 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
     } finally {
       if (mounted) setState(() => _adding = false);
     }
+  }
+
+  /// Actions sheet for a partida.
+  void _partidaMenu(Map<String, dynamic> partida) {
+    final label = partida['code'] != null
+        ? '${partida['code']} · ${partida['name']}'
+        : (partida['name'] ?? '').toString();
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.edit, color: Color(0xFF1C1CF0)),
+              title: const Text('EDITAR PARTIDA'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editDialog(partida);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('BORRAR PARTIDA'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _confirmDelete(partida);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editDialog(Map<String, dynamic> partida) async {
+    final code = TextEditingController(text: partida['code'] ?? '');
+    final name = TextEditingController(text: partida['name'] ?? '');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('EDITAR PARTIDA'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 64,
+                    child: TextField(
+                      controller: code,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                          labelText: 'NO.', isDense: true),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: name,
+                      textCapitalization: TextCapitalization.characters,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                          labelText: 'NOMBRE', isDense: true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('CANCELAR')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1C1CF0),
+                foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('GUARDAR'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    if (name.text.trim().isEmpty) {
+      _showError('El nombre no puede estar vacío');
+      return;
+    }
+
+    try {
+      final headers = await _authHeaders();
+      final resp = await http.put(
+        _u('/partidas/${partida['id']}'),
+        headers: headers,
+        body: jsonEncode({
+          'code': code.text.trim().isEmpty ? null : code.text.trim(),
+          'name': name.text.trim(),
+        }),
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        _load();
+      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
+        _showError('No tienes permiso para editar las partidas');
+      } else {
+        _showError('Error al guardar (HTTP ${resp.statusCode})');
+      }
+    } catch (e) {
+      _showError('Error: $e');
+    }
+  }
+
+  Future<void> _confirmDelete(Map<String, dynamic> partida) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('BORRAR PARTIDA'),
+        content: Text(
+            '¿Borrar "${partida['name']}"?\n\nLas notas y conceptos ligados a esta partida no se borran, pero quedarán sin partida asignada.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('CANCELAR')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('BORRAR'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) _delete(partida);
   }
 
   Future<void> _delete(Map<String, dynamic> partida) async {
@@ -1536,9 +2299,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
                             fontSize: 14, fontWeight: FontWeight.w500),
                       ),
                       trailing: IconButton(
-                        icon: Icon(Icons.delete_outline,
-                            color: Colors.grey[400]),
-                        onPressed: () => _delete(p),
+                        icon: Icon(Icons.more_horiz,
+                            color: Colors.grey[500]),
+                        onPressed: () => _partidaMenu(p),
                       ),
                     ),
                   );

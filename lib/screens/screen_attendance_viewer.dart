@@ -432,7 +432,7 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
         bg = Colors.green.shade50;
         fg = Colors.green.shade800;
         break;
-      case '0':
+      case 'X':
         bg = Colors.red.shade50;
         fg = Colors.red.shade700;
         break;
