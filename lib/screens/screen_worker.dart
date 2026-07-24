@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/main.dart' show baseUrl;
 import 'package:control_app/screens/models/worker.dart';
+import 'screen_worker_form.dart';
 
 Uri _u(String path) => Uri.parse('$baseUrl$path');
 
@@ -20,6 +23,15 @@ class WorkerDetailScreen extends StatefulWidget {
 class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
   Map<String, dynamic>? _data; // fresh row from the API (includes new fields)
   bool _loading = true;
+  bool _isAdmin = false;
+
+  static Future<Map<String, String>> _auth() async {
+    const storage = FlutterSecureStorage();
+    final token = await storage.read(key: 'auth_token');
+    return {
+      if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
+    };
+  }
 
   @override
   void initState() {
@@ -29,8 +41,17 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
 
   Future<void> _load() async {
     try {
-      final resp = await http.get(_u('/workers?active_only=false'));
+      final headers = await _auth();
+      final results = await Future.wait([
+        http.get(_u('/workers?active_only=false'), headers: headers),
+        http.get(_u('/me'), headers: headers),
+      ]);
       if (!mounted) return;
+      final resp = results[0];
+      if (results[1].statusCode == 200) {
+        final me = jsonDecode(results[1].body) as Map<String, dynamic>;
+        _isAdmin = me['is_admin'] == true;
+      }
       if (resp.statusCode == 200) {
         final all = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(resp.bodyBytes)));
@@ -54,13 +75,22 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => _WorkerDetailsForm(
-          workerId: widget.worker.id,
-          data: _data!,
-        ),
+        builder: (_) => WorkerFormScreen(worker: _data),
       ),
     );
     if (saved == true) _load();
+  }
+
+  String _maskCard(dynamic n) {
+    final s = (n ?? '').toString();
+    if (s.length < 4) return '';
+    return '•••• •••• •••• ${s.substring(s.length - 4)}';
+  }
+
+  String _money(dynamic v) {
+    if (v == null) return '';
+    final d = (v as num).toDouble();
+    return '\$${d.toStringAsFixed(2)}';
   }
 
   @override
@@ -183,19 +213,73 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                         'CONTACTO DE EMERGENCIA',
                         d['emergency_contact_name']),
                     _row(Icons.phone_in_talk, 'TEL. DE EMERGENCIA',
-                        d['emergency_contact_phone'],
-                        last: true),
+                        d['emergency_contact_phone']),
+                    _row(Icons.receipt_long, 'RFC', d['rfc'], last: true),
                   ],
                 ),
               ),
             ),
+
+            // ---------- Bank & payroll (admins only) ----------
+            if (_isAdmin) ...[
+              const SizedBox(height: 12),
+              Card(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10, bottom: 2),
+                        child: Row(
+                          children: [
+                            Icon(Icons.lock_outline,
+                                size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'NOMINA Y BANCO',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey[600],
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _row(Icons.credit_card, 'TARJETA',
+                          _maskCard(d['card_number']),
+                          copyValue: d['card_number']),
+                      _row(Icons.account_balance, 'CLABE', d['clabe'],
+                          copyValue: d['clabe']),
+                      _row(Icons.payments, 'SDI', _money(d['sdi'])),
+                      _row(Icons.more_time, 'COSTO HORA EXTRA',
+                          _money(d['extra_hour_cost'])),
+                      _row(Icons.card_giftcard, 'COMPENSACION',
+                          _money(d['compensation'])),
+                      _row(Icons.request_quote, 'PRESTAMO PERSONAL',
+                          _money(d['personal_loan'])),
+                      _row(Icons.house, 'PRESTAMO INFONAVIT', d['infonavit']),
+                      _row(Icons.store, 'PRESTAMO FONACOT', d['fonacot'], last: true),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _row(IconData icon, String label, dynamic value, {bool last = false}) {
+  Widget _row(IconData icon, String label, dynamic value,
+      {bool last = false, dynamic copyValue}) {
     final text = (value == null || value.toString().trim().isEmpty)
         ? null
         : value.toString();
@@ -233,159 +317,25 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                   ],
                 ),
               ),
+              if (copyValue != null &&
+                  copyValue.toString().trim().isNotEmpty)
+                IconButton(
+                  tooltip: 'COPIAR',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.copy, size: 17, color: Colors.grey[500]),
+                  onPressed: () {
+                    Clipboard.setData(
+                        ClipboardData(text: copyValue.toString()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$label copiado')),
+                    );
+                  },
+                ),
             ],
           ),
         ),
         if (!last) Divider(height: 1, color: Colors.grey[200]),
       ],
-    );
-  }
-}
-
-// ============================================================
-// Edit form for the personal fields
-// ============================================================
-class _WorkerDetailsForm extends StatefulWidget {
-  final int workerId;
-  final Map<String, dynamic> data;
-  const _WorkerDetailsForm({required this.workerId, required this.data});
-
-  @override
-  State<_WorkerDetailsForm> createState() => _WorkerDetailsFormState();
-}
-
-class _WorkerDetailsFormState extends State<_WorkerDetailsForm> {
-  late final _nss =
-  TextEditingController(text: widget.data['nss'] ?? '');
-  late final _curp =
-  TextEditingController(text: widget.data['curp'] ?? '');
-  late final _phone =
-  TextEditingController(text: widget.data['phone'] ?? '');
-  late final _address =
-  TextEditingController(text: widget.data['address'] ?? '');
-  late final _blood =
-  TextEditingController(text: widget.data['blood_type'] ?? '');
-  late final _ecName = TextEditingController(
-      text: widget.data['emergency_contact_name'] ?? '');
-  late final _ecPhone = TextEditingController(
-      text: widget.data['emergency_contact_phone'] ?? '');
-  bool _saving = false;
-
-  String? _v(TextEditingController c) =>
-      c.text.trim().isEmpty ? null : c.text.trim();
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      final resp = await http.put(
-        _u('/workers/${widget.workerId}/details'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'nss': _v(_nss),
-          'curp': _v(_curp),
-          'phone': _v(_phone),
-          'address': _v(_address),
-          'blood_type': _v(_blood),
-          'emergency_contact_name': _v(_ecName),
-          'emergency_contact_phone': _v(_ecPhone),
-        }),
-      );
-      if (!mounted) return;
-      if (resp.statusCode == 200) {
-        Navigator.pop(context, true);
-      } else {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error al guardar (HTTP ${resp.statusCode})'),
-            backgroundColor: Colors.red));
-      }
-    } catch (e) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error: $e'), backgroundColor: Colors.red));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget field(TextEditingController c, String label,
-        {TextInputType? kb}) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: TextField(
-          controller: c,
-          keyboardType: kb,
-          decoration: InputDecoration(
-              labelText: label, labelStyle: const TextStyle(fontSize: 14)),
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('EDITAR FICHA'),
-        titleTextStyle: const TextStyle(
-            color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-        backgroundColor: const Color(0xFF1C1CF0),
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Container(
-        constraints: const BoxConstraints.expand(),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
-          ),
-        ),
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    field(_nss, 'NSS', kb: TextInputType.number),
-                    field(_curp, 'CURP'),
-                    field(_phone, 'TELÉFONO', kb: TextInputType.phone),
-                    field(_address, 'DIRECCIÓN'),
-                    field(_blood, 'TIPO DE SANGRE (EJ. O+)'),
-                    field(_ecName, 'CONTACTO DE EMERGENCIA'),
-                    field(_ecPhone, 'TEL. DE EMERGENCIA',
-                        kb: TextInputType.phone),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              height: 52,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF1C1CF0),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Color(0xFF1C1CF0)))
-                    : const Icon(Icons.save),
-                label: Text(_saving ? 'GUARDANDO...' : 'GUARDAR FICHA',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15)),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

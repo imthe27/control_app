@@ -637,32 +637,12 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                       children: [
                         Text(
                           widget.worker['name'],
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Colors.black87,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: _getStatusColor().withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: _getStatusColor().withValues(alpha: 0.3),
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Text(
-                            _getStatusLabel(),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _getStatusColor(),
-                              fontWeight: FontWeight.w600,
-                            ),
                           ),
                         ),
                       ],
@@ -705,7 +685,7 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(10),
                                     color: isSelectedHours
-                                        ? Colors.blue
+                                        ? Color(0xFF1C1CF0)
                                         : Colors.white,
                                     border: Border.all(
                                       color: isSelectedHours

@@ -340,13 +340,11 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
           ),
         ),
       ),
-      floatingActionButton: _isAdmin
-          ? FloatingActionButton(
-              onPressed: _openWorkerForm,
-              backgroundColor: const Color(0xFF1C1CF0),
-              child: const Icon(Icons.person_add, color: Colors.white),
-            )
-          : null,
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openWorkerForm,
+        backgroundColor: const Color(0xFF1C1CF0),
+        child: const Icon(Icons.person_add, color: Colors.white),
+      )
     );
   }
 
@@ -508,7 +506,7 @@ class _WorkerCard extends StatelessWidget {
                           children: [
                             Text(
                               worker.name,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 14,
@@ -529,32 +527,6 @@ class _WorkerCard extends StatelessWidget {
                             //  ),
                             //),
                           ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: Colors.blue[200]!,
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Text(
-                            worker.project.length > 15
-                                ? '${worker.project.substring(0, 12)}...'
-                                : worker.project,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.blue[700],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
                         ),
                       ],
                     ),
