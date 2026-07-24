@@ -190,88 +190,185 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
 
   String _formatDate(DateTime date) => "${date.day}/${date.month}/${date.year}";
 
+  /// Transfer workers from another obra into this one.
+  /// Since every worker always belongs to some obra, adding personnel here
+  /// means MOVING them; their attendance history stays with the old obra.
   void _showWorkerPickDialog() {
+    final candidates = allWorkers
+        .where((w) => (w['project_id'] as int?) != currentProjectId)
+        .toList()
+      ..sort((a, b) {
+        final pa = (a['project'] ?? '').toString();
+        final pb = (b['project'] ?? '').toString();
+        final c = pa.compareTo(pb);
+        return c != 0 ? c : (a['name'] ?? '').toString()
+            .compareTo((b['name'] ?? '').toString());
+      });
+
+    final selected = <int>{};
+    String query = '';
+    bool sending = false;
+
     showDialog(
       context: context,
-      builder: (_) {
-        final Map<String, bool> tempSelection = {
-          for (var w in allWorkers)
-            if ((w['project_id'] == null || w['project_id'] == 0) &&
-                !selectedWorkers.any((e) => e['id'] == w['id']))
-              w['id'].toString(): false,
-        };
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx, setModal) {
+          final visible = query.trim().isEmpty
+              ? candidates
+              : candidates.where((w) {
+            final q = query.toLowerCase();
+            return (w['name'] ?? '').toString().toLowerCase().contains(q) ||
+                (w['project'] ?? '').toString().toLowerCase().contains(q);
+          }).toList();
 
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('AGREGAR PERSONAL'),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: ListView(
-                  shrinkWrap: true,
-                  children: tempSelection.entries.map((entry) {
-                    final worker = allWorkers.firstWhere((w) => w['id'].toString() == entry.key);
-                    return CheckboxListTile(
-                      title: Text(worker['name']),
-                      value: entry.value,
-                      onChanged: (val) {
-                        setState(() {
-                          tempSelection[entry.key] = val ?? false;
-                        });
-                      },
-                    );
-                  }).toList(),
+          // Build grouped tiles: a small header per source obra
+          final tiles = <Widget>[];
+          String? lastProject;
+          for (final w in visible) {
+            final proj = (w['project'] ?? 'SIN OBRA').toString();
+            if (proj != lastProject) {
+              lastProject = proj;
+              tiles.add(Padding(
+                padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+                child: Text(
+                  proj.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey[600],
+                    letterSpacing: 0.6,
+                  ),
                 ),
+              ));
+            }
+            final id = w['id'] as int;
+            tiles.add(CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              value: selected.contains(id),
+              title: Text((w['name'] ?? '').toString(),
+                  style: const TextStyle(fontSize: 14)),
+              onChanged: sending
+                  ? null
+                  : (v) => setModal(() =>
+              v == true ? selected.add(id) : selected.remove(id)),
+            ));
+          }
+
+          return AlertDialog(
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('AGREGAR PERSONAL'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 420,
+              child: Column(
+                children: [
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar por nombre u obra',
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      isDense: true,
+                    ),
+                    onChanged: (v) => setModal(() => query = v),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Se moverán a esta obra desde la suya.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: candidates.isEmpty
+                        ? const Center(
+                      child: Text(
+                        'No hay personal en otras obras',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    )
+                        : ListView(children: tiles),
+                  ),
+                ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('CANCELAR'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final selectedToAdd = tempSelection.entries
-                        .where((e) => e.value)
-                        .map((e) => allWorkers.firstWhere((w) => w['id'].toString() == e.key))
-                        .toList();
-
-                    for (var worker in selectedToAdd) {
-                      await http.put(
-                        u('/worker/${worker['id']}/assign-project'),
-                        headers: {'Content-Type': 'application/json'},
-                        body: jsonEncode({'project_id': currentProjectId}),
+            ),
+            actions: [
+              TextButton(
+                onPressed:
+                sending ? null : () => Navigator.pop(dialogCtx),
+                child: const Text('CANCELAR'),
+              ),
+              ElevatedButton(
+                onPressed: (selected.isEmpty || sending)
+                    ? null
+                    : () async {
+                  setModal(() => sending = true);
+                  final ids = selected.toList();
+                  final names = allWorkers
+                      .where((w) => ids.contains(w['id']))
+                      .map((w) => (w['name'] ?? '').toString())
+                      .toList();
+                  try {
+                    final resp = await http.post(
+                      u('/workers/transfer'),
+                      headers: {'Content-Type': 'application/json'},
+                      body: jsonEncode({
+                        'ids': ids,
+                        'project_id': currentProjectId,
+                      }),
+                    );
+                    if (!mounted) return;
+                    Navigator.pop(dialogCtx);
+                    if (resp.statusCode != 200) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              'No se pudo mover (HTTP ${resp.statusCode})'),
+                          backgroundColor: Colors.red,
+                        ),
                       );
+                      return;
                     }
-
-                    Navigator.pop(context);
-
-                    if (mounted) {
-                      await refreshWorkers();
-
-                      setState(() {
-                        final todayKey = _formatDate(selectedDate);
-                        allAttendance[todayKey] ??= {};
-                        allExtras[todayKey] ??= {};
-                        for (var worker in selectedToAdd) {
-                          allAttendance[todayKey]![worker['name']] = '0';
-                          allExtras[todayKey]![worker['name']] = '0';
-                        }
-                      });
-                    }
-                  },
-                  child: const Text('AGREGAR'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+                    await refreshWorkers();
+                    if (!mounted) return;
+                    setState(() {
+                      final todayKey = _formatDate(selectedDate);
+                      allAttendance[todayKey] ??= {};
+                      allExtras[todayKey] ??= {};
+                      for (final n in names) {
+                        allAttendance[todayKey]![n] = '0';
+                        allExtras[todayKey]![n] = '0';
+                      }
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(
+                              '${ids.length} trabajador(es) movidos')),
+                    );
+                  } catch (e) {
+                    if (!mounted) return;
+                    Navigator.pop(dialogCtx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text('Error: $e'),
+                          backgroundColor: Colors.red),
+                    );
+                  }
+                },
+                child: Text(sending
+                    ? 'MOVIENDO...'
+                    : 'MOVER${selected.isEmpty ? '' : ' (${selected.length})'}'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
   String _getInitials(String name) {
-    final parts = name.split(' ');
-    return parts.map((p) => p[0]).take(2).join('').toUpperCase();
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+    if (parts.isEmpty) return '?';
+    return parts.map((p) => p[0]).take(2).join().toUpperCase();
   }
 
   @override
@@ -637,12 +734,32 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                       children: [
                         Text(
                           widget.worker['name'],
-                          maxLines: 2,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Colors.black87,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor().withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: _getStatusColor().withValues(alpha: 0.3),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Text(
+                            _getStatusLabel(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: _getStatusColor(),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
@@ -685,7 +802,7 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(10),
                                     color: isSelectedHours
-                                        ? Color(0xFF1C1CF0)
+                                        ? Colors.blue
                                         : Colors.white,
                                     border: Border.all(
                                       color: isSelectedHours
