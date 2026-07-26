@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:control_app/main.dart' show baseUrl;
+import 'package:control_app/api.dart';
 
 /// Full-screen form to register a new worker: photo, basic data
 /// and (optionally) the personal info shown in their ficha.
@@ -87,12 +86,9 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
   Future<void> _loadMe() async {
     try {
-      const storage = FlutterSecureStorage();
-      final token = await storage.read(key: 'auth_token');
-      if (token == null || token == 'guest') return;
       final resp = await http.get(
-        Uri.parse('$baseUrl/me'),
-        headers: {'Authorization': 'Bearer $token'},
+        u('/me'),
+        headers: await authHeaders(json: false),
       );
       if (!mounted || resp.statusCode != 200) return;
       final me = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -102,7 +98,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
   Future<void> _loadProjects() async {
     try {
-      final resp = await http.get(Uri.parse('$baseUrl/projects'));
+      final resp = await http.get(u('/projects'));
       if (!mounted) return;
       if (resp.statusCode == 200) {
         final list = List<Map<String, dynamic>>.from(
@@ -223,7 +219,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
   Future<String?> _uploadPhoto(File file) async {
     final req = http.MultipartRequest(
-        'POST', Uri.parse('$baseUrl/upload-photo/'));
+        'POST', u('/upload-photo/'));
     req.files.add(await http.MultipartFile.fromPath('file', file.path));
     final resp = await req.send();
     if (resp.statusCode == 200) {
@@ -266,13 +262,6 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
         photoFilename = ''; // '' clears it server-side
       }
 
-      const storage = FlutterSecureStorage();
-      final token = await storage.read(key: 'auth_token');
-      final authHeaders = {
-        'Content-Type': 'application/json',
-        if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
-      };
-
       final basicBody = jsonEncode({
         'name': name,
         'project_id': _projectId,
@@ -280,11 +269,12 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
         'photo_url': photoFilename,
       });
 
+      final headers = await authHeaders();
       final resp = isEditing
-          ? await http.put(Uri.parse('$baseUrl/workers/$_workerId'),
-          headers: {'Content-Type': 'application/json'}, body: basicBody)
-          : await http.post(Uri.parse('$baseUrl/workers'),
-          headers: {'Content-Type': 'application/json'}, body: basicBody);
+          ? await http.put(u('/workers/$_workerId'),
+          headers: headers, body: basicBody)
+          : await http.post(u('/workers'),
+          headers: headers, body: basicBody);
       if (!mounted) return;
       if (resp.statusCode != 200) {
         setState(() => _saving = false);
@@ -297,8 +287,8 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
       // Personal info
       if (id != null && (_hasDetails || isEditing)) {
         await http.put(
-          Uri.parse('$baseUrl/workers/$id/details'),
-          headers: {'Content-Type': 'application/json'},
+          u('/workers/$id/details'),
+          headers: await authHeaders(),
           body: jsonEncode({
             'nss': _v(_nss),
             'curp': _v(_curp),
@@ -314,8 +304,8 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
       // Payroll & bank — admins only
       if (id != null && _isAdmin && (_hasPayroll || isEditing)) {
         final pr = await http.put(
-          Uri.parse('$baseUrl/workers/$id/payroll'),
-          headers: authHeaders,
+          u('/workers/$id/payroll'),
+          headers: await authHeaders(),
           body: jsonEncode({
             'rfc': _v(_rfc),
             'card_number': card.isEmpty ? null : card,

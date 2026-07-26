@@ -2,13 +2,10 @@ import 'dart:convert';
 import 'screen_worker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'models/worker.dart';
-import 'package:control_app/main.dart' show baseUrl;
+import 'package:control_app/api.dart';
 import 'screen_worker_form.dart';
-
-Uri u(String path) => Uri.parse('$baseUrl$path');
 
 class PersonnelScreen extends StatefulWidget {
   const PersonnelScreen({super.key});
@@ -64,12 +61,9 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> _loadMe() async {
     try {
-      const storage = FlutterSecureStorage();
-      final token = await storage.read(key: 'auth_token');
-      if (token == null || token == 'guest') return;
       final resp = await http.get(
         u('/me'),
-        headers: {'Authorization': 'Bearer $token'},
+        headers: await authHeaders(json: false),
       );
       if (!mounted || resp.statusCode != 200) return;
       final me = jsonDecode(resp.body) as Map<String, dynamic>;
@@ -90,7 +84,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   Future<void> deleteWorkersFromBackend(List<int> ids) async {
     final response = await http.post(
       u('/delete-workers/'),
-      headers: {'Content-Type': 'application/json'},
+      headers: await authHeaders(),
       body: jsonEncode({'ids': ids}),
     );
     if (response.statusCode != 200) {

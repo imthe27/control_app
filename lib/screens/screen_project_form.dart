@@ -5,11 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:control_app/main.dart' show baseUrl;
+import 'package:control_app/api.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
-
-Uri _u(String path) => Uri.parse('$baseUrl$path');
 
 /// Full-screen form to create or edit a project.
 /// Pops with `true` when the save succeeded so the caller can refresh.
@@ -90,7 +87,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   // ---------------- HTTP ----------------
 
   Future<String?> _uploadImage(File imageFile) async {
-    final request = http.MultipartRequest('POST', _u('/upload-photo/'));
+    final request = http.MultipartRequest('POST', u('/upload-photo/'));
     request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
     final response = await request.send();
     if (response.statusCode == 200) {
@@ -101,7 +98,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   }
 
   Future<String?> _uploadCatalog(File pdfFile) async {
-    final request = http.MultipartRequest('POST', _u('/upload-catalog'));
+    final request = http.MultipartRequest('POST', u('/upload-catalog'));
     request.files.add(await http.MultipartFile.fromPath('file', pdfFile.path));
     final response = await request.send();
     if (response.statusCode == 200) {
@@ -119,7 +116,8 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
       // Trailing slash matters: without it FastAPI answers 307 and
       // Dart's http client does not follow redirects for DELETE.
       await http.delete(
-        _u('/delete-photo/?filename=${Uri.encodeQueryComponent(filename)}'),
+        u('/delete-photo/?filename=${Uri.encodeQueryComponent(filename)}'),
+        headers: await authHeaders(json: false),
       );
     } catch (e) {
       debugPrint('Error deleting old image: $e');
@@ -171,13 +169,9 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
 
     setState(() => _isSaving = true);
     try {
-      const storage = FlutterSecureStorage();
-      final token = await storage.read(key: 'auth_token');
       final resp = await http.delete(
-        Uri.parse('$baseUrl/projects/${p['id']}'),
-        headers: {
-          if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
-        },
+        u('/projects/${p['id']}'),
+        headers: await authHeaders(json: false),
       );
       if (!mounted) return;
       if (resp.statusCode == 200) {
@@ -229,20 +223,26 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
 
       // 2. Create or update
       final http.Response response;
+      final headers = await authHeaders();
       if (isEditing) {
         response = await http.put(
-          _u('/projects/${widget.projectToEdit!['id']}'),
-          headers: {'Content-Type': 'application/json'},
+          u('/projects/${widget.projectToEdit!['id']}'),
+          headers: headers,
           body: jsonEncode(_payload(photoFilename, catalogFilename)),
         );
       } else {
         response = await http.post(
-          _u('/projects'),
-          headers: {'Content-Type': 'application/json'},
+          u('/projects'),
+          headers: headers,
           body: jsonEncode(_payload(photoFilename, catalogFilename)),
         );
       }
 
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() => _isSaving = false);
+        _showError('No tienes permiso para guardar esta obra');
+        return;
+      }
       if (response.statusCode != 200 && response.statusCode != 201) {
         setState(() => _isSaving = false);
         _showError('Error al guardar: ${response.body}');

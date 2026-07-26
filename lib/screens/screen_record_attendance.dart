@@ -2,9 +2,7 @@ import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:control_app/main.dart' show baseUrl;
-
-Uri u(String path) => Uri.parse('$baseUrl$path');
+import 'package:control_app/api.dart';
 
 class RecordAttendanceScreen extends StatefulWidget {
   final int projectId;
@@ -90,7 +88,10 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
   Future<void> loadAttendanceForDate() async {
     final formattedDate =
         "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
-    final resp = await http.get(u('/attendance/$currentProjectId/$formattedDate'));
+    final resp = await http.get(
+      u('/attendance/$currentProjectId/$formattedDate'),
+      headers: await authHeaders(json: false),
+    );
 
     if (resp.statusCode == 200 && (resp.headers['content-type'] ?? '').contains('application/json')) {
       final List<dynamic> data = jsonDecode(resp.body);
@@ -129,7 +130,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
 
       final response = await http.post(
         u('/attendance/'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await authHeaders(),
         body: jsonEncode(attendancePayload),
       );
 
@@ -310,7 +311,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                   try {
                     final resp = await http.post(
                       u('/workers/transfer'),
-                      headers: {'Content-Type': 'application/json'},
+                      headers: await authHeaders(),
                       body: jsonEncode({
                         'ids': ids,
                         'project_id': currentProjectId,

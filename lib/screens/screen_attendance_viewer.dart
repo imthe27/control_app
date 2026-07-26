@@ -1,14 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:control_app/main.dart' show baseUrl;
-
-Uri u(String path) => Uri.parse('$baseUrl$path');
+import 'package:control_app/api.dart';
+import 'screen_backfill_attendance.dart';
 
 class AttendanceViewerScreen extends StatefulWidget {
   const AttendanceViewerScreen({super.key});
@@ -24,6 +22,7 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
 
   bool _isLoading = false;
   bool _isDownloading = false;
+  bool _isAdmin = false;
 
   // Parsed response from /attendance-week
   String _weekHeader = '';
@@ -36,6 +35,16 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
   void initState() {
     super.initState();
     _fetchProjects();
+    _loadMe();
+  }
+
+  Future<void> _loadMe() async {
+    try {
+      final resp = await http.get(u('/me'), headers: await authHeaders(json: false));
+      if (!mounted || resp.statusCode != 200) return;
+      final me = jsonDecode(resp.body) as Map<String, dynamic>;
+      setState(() => _isAdmin = me ['is_admin'] == true);
+    } catch (_) {}
   }
 
   Future<void> _fetchProjects() async {
@@ -63,7 +72,7 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
             '&anchor_date=$anchorStr',
       );
 
-      final response = await http.get(url);
+      final response = await http.get(url, headers: await authHeaders(json: false));
       if (!mounted) return;
 
       final ct = response.headers['content-type'] ?? '';
@@ -103,13 +112,8 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
       );
 
       // The export endpoint is behind the portal auth middleware,
-      // so we send the token from login as a Bearer header.
-      const storage = FlutterSecureStorage();
-      final token = await storage.read(key: 'auth_token');
-
-      final response = await http.get(url, headers: {
-        if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
-      });
+      // so we send the login token as a Bearer header.
+      final response = await http.get(url, headers: await authHeaders(json: false));
       if (!mounted) return;
 
       final ct = response.headers['content-type'] ?? '';
@@ -181,6 +185,22 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
             ),
         ],
       ),
+      floatingActionButton: _isAdmin
+          ? FloatingActionButton.extended(
+        backgroundColor: const Color(0xFF1C1CF0),
+        icon: const Icon(Icons.history_edu, color: Colors.white),
+        label: const Text('REGISTRO PASADO',
+            style: TextStyle(color: Colors.white)),
+        onPressed: () async {
+          final saved = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(
+                builder: (_) => const BackfillAttendanceScreen()),
+          );
+          if (saved == true) _fetchAttendance();
+          },
+      )
+          : null,
       body: Container(
         constraints: const BoxConstraints.expand(),
         decoration: const BoxDecoration(
