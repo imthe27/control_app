@@ -19,6 +19,7 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
   Map<String, dynamic>? _data; // fresh row from the API (includes new fields)
   List<Map<String, dynamic>> _transfers = [];
   bool _loading = true;
+  bool _isAdmin = false;
 
   @override
   void initState() {
@@ -28,15 +29,21 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
 
   Future<void> _load() async {
     try {
+      final headers = await authHeaders(json: false);
       final results = await Future.wait([
-        http.get(u('/workers?active_only=false')),
-        http.get(u('/workers/${widget.worker.id}/transfers')),
+        http.get(u('/workers?active_only=false'), headers: headers),
+        http.get(u('/workers/${widget.worker.id}/transfers'), headers: headers),
+        http.get(u('/me'), headers: headers),
       ]);
       if (!mounted) return;
       final resp = results[0];
       if (results[1].statusCode == 200) {
         _transfers = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(results[1].bodyBytes)));
+      }
+      if (results[2].statusCode == 200) {
+        _isAdmin = (jsonDecode(results[2].body)
+            as Map<String, dynamic>)['is_admin'] == true;
       }
       if (resp.statusCode == 200) {
         final all = List<Map<String, dynamic>>.from(
@@ -64,6 +71,7 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
         builder: (_) => _WorkerDetailsForm(
           workerId: widget.worker.id,
           data: _data!,
+          isAdmin: _isAdmin,
         ),
       ),
     );
@@ -196,6 +204,26 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            _infoCard('DATOS FISCALES Y BANCO', [
+              _row(Icons.receipt_long, 'RFC', d['rfc']),
+              _row(Icons.credit_card, 'NÚMERO DE TARJETA', d['card_number']),
+              _row(Icons.account_balance, 'CLABE', d['clabe'], last: true),
+            ]),
+            if (_isAdmin) ...[
+              const SizedBox(height: 12),
+              _infoCard('NÓMINA', [
+                _row(Icons.attach_money, 'SDI', _money(d['sdi'])),
+                _row(Icons.more_time, 'COSTO HORA EXTRA',
+                    _money(d['extra_hour_cost'])),
+                _row(Icons.add_card, 'COMPENSACIÓN', _money(d['compensation'])),
+                _row(Icons.money_off, 'PRÉSTAMO PERSONAL',
+                    _money(d['personal_loan'])),
+                _row(Icons.home_work, 'PRÉSTAMO INFONAVIT', d['infonavit']),
+                _row(Icons.savings, 'PRÉSTAMO FONACOT', d['fonacot'],
+                    last: true),
+              ]),
+            ],
             _buildHistory(),
           ],
         ),
@@ -337,6 +365,35 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
       ],
     );
   }
+
+  String? _money(dynamic v) {
+    if (v == null) return null;
+    final n = v is num ? v.toDouble() : double.tryParse(v.toString());
+    return n == null ? null : '\$ ${n.toStringAsFixed(2)}';
+  }
+
+  Widget _infoCard(String title, List<Widget> rows) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey[600],
+                  letterSpacing: 0.8,
+                )),
+            const SizedBox(height: 4),
+            ...rows,
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ============================================================
@@ -345,7 +402,9 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
 class _WorkerDetailsForm extends StatefulWidget {
   final int workerId;
   final Map<String, dynamic> data;
-  const _WorkerDetailsForm({required this.workerId, required this.data});
+  final bool isAdmin;
+  const _WorkerDetailsForm(
+      {required this.workerId, required this.data, required this.isAdmin});
 
   @override
   State<_WorkerDetailsForm> createState() => _WorkerDetailsFormState();
@@ -366,12 +425,52 @@ class _WorkerDetailsFormState extends State<_WorkerDetailsForm> {
       text: widget.data['emergency_contact_name'] ?? '');
   late final _ecPhone = TextEditingController(
       text: widget.data['emergency_contact_phone'] ?? '');
+  // Fiscal & bank (all users)
+  late final _rfc = TextEditingController(text: widget.data['rfc'] ?? '');
+  late final _card =
+      TextEditingController(text: widget.data['card_number'] ?? '');
+  late final _clabe = TextEditingController(text: widget.data['clabe'] ?? '');
+  // Nómina (admins only)
+  late final _sdi = TextEditingController(text: _fmt(widget.data['sdi']));
+  late final _extraHour =
+      TextEditingController(text: _fmt(widget.data['extra_hour_cost']));
+  late final _compensation =
+      TextEditingController(text: _fmt(widget.data['compensation']));
+  late final _loan =
+      TextEditingController(text: _fmt(widget.data['personal_loan']));
+  late final _infonavit =
+      TextEditingController(text: widget.data['infonavit'] ?? '');
+  late final _fonacot =
+      TextEditingController(text: widget.data['fonacot'] ?? '');
   bool _saving = false;
+
+  static String _fmt(dynamic v) =>
+      v == null ? '' : (v as num).toDouble().toStringAsFixed(2);
 
   String? _v(TextEditingController c) =>
       c.text.trim().isEmpty ? null : c.text.trim();
 
+  double? _money(TextEditingController c) =>
+      double.tryParse(c.text.trim().replaceAll(',', ''));
+
+  void _err(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  }
+
   Future<void> _save() async {
+    final card = _card.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final clabe = _clabe.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (card.isNotEmpty && card.length != 16) {
+      _err('La tarjeta debe tener 16 dígitos');
+      return;
+    }
+    if (clabe.isNotEmpty && clabe.length != 18) {
+      _err('La CLABE debe tener 18 dígitos');
+      return;
+    }
+
     setState(() => _saving = true);
     try {
       final resp = await http.put(
@@ -385,35 +484,86 @@ class _WorkerDetailsFormState extends State<_WorkerDetailsForm> {
           'blood_type': _v(_blood),
           'emergency_contact_name': _v(_ecName),
           'emergency_contact_phone': _v(_ecPhone),
+          'rfc': _v(_rfc),
+          'card_number': card.isEmpty ? null : card,
+          'clabe': clabe.isEmpty ? null : clabe,
         }),
       );
       if (!mounted) return;
-      if (resp.statusCode == 200) {
-        Navigator.pop(context, true);
-      } else {
+      if (resp.statusCode != 200) {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error al guardar (HTTP ${resp.statusCode})'),
-            backgroundColor: Colors.red));
+        _err('Error al guardar (HTTP ${resp.statusCode})');
+        return;
       }
+
+      // Nómina (salary) — admins only
+      if (widget.isAdmin) {
+        final pr = await http.put(
+          u('/workers/${widget.workerId}/payroll'),
+          headers: await authHeaders(),
+          body: jsonEncode({
+            'sdi': _money(_sdi),
+            'extra_hour_cost': _money(_extraHour),
+            'compensation': _money(_compensation),
+            'personal_loan': _money(_loan),
+            'infonavit': _v(_infonavit),
+            'fonacot': _v(_fonacot),
+          }),
+        );
+        if (!mounted) return;
+        if (pr.statusCode != 200) {
+          setState(() => _saving = false);
+          _err('Se guardó la ficha, pero la nómina no');
+          return;
+        }
+      }
+
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error: $e'), backgroundColor: Colors.red));
+      _err('Error: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     Widget field(TextEditingController c, String label,
-        {TextInputType? kb}) {
+        {TextInputType? kb, bool money = false, int? maxLen}) {
       return Padding(
         padding: const EdgeInsets.only(top: 8),
         child: TextField(
           controller: c,
           keyboardType: kb,
+          maxLength: maxLen,
           decoration: InputDecoration(
-              labelText: label, labelStyle: const TextStyle(fontSize: 14)),
+            labelText: label,
+            labelStyle: const TextStyle(fontSize: 14),
+            prefixText: money ? '\$ ' : null,
+            counterText: '',
+          ),
+        ),
+      );
+    }
+
+    Widget sectionCard(String title, List<Widget> children) {
+      return Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey[600],
+                    letterSpacing: 0.8,
+                  )),
+              ...children,
+            ],
+          ),
         ),
       );
     }
@@ -457,6 +607,32 @@ class _WorkerDetailsFormState extends State<_WorkerDetailsForm> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            sectionCard('DATOS FISCALES Y BANCO', [
+              field(_rfc, 'RFC'),
+              field(_card, 'NÚMERO DE TARJETA',
+                  kb: TextInputType.number, maxLen: 19),
+              field(_clabe, 'CLABE', kb: TextInputType.number, maxLen: 18),
+            ]),
+            if (widget.isAdmin) ...[
+              const SizedBox(height: 12),
+              sectionCard('NÓMINA', [
+                field(_sdi, 'SDI',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
+                field(_extraHour, 'COSTO HORA EXTRA',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
+                field(_compensation, 'COMPENSACIÓN',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
+                field(_loan, 'PRÉSTAMO PERSONAL',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
+                field(_infonavit, 'PRÉSTAMO INFONAVIT'),
+                field(_fonacot, 'PRÉSTAMO FONACOT'),
+              ]),
+            ],
             const SizedBox(height: 20),
             SizedBox(
               height: 52,

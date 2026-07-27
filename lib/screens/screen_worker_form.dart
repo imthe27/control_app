@@ -147,12 +147,12 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
       double.tryParse(c.text.trim().replaceAll(',', ''));
 
   bool get _hasPayroll => [
-    _rfc, _cardNumber, _clabe, _sdi, _extraHour,
-    _compensation, _loan, _infonavit, _fonacot
+    _sdi, _extraHour, _compensation, _loan, _infonavit, _fonacot
   ].any((c) => c.text.trim().isNotEmpty);
 
   bool get _hasDetails => [
-    _nss, _curp, _phone, _address, _blood, _ecName, _ecPhone
+    _nss, _curp, _phone, _address, _blood, _ecName, _ecPhone,
+    _rfc, _cardNumber, _clabe
   ].any((c) => c.text.trim().isNotEmpty);
 
   // ---------- Photo ----------
@@ -297,19 +297,19 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             'blood_type': _v(_blood),
             'emergency_contact_name': _v(_ecName),
             'emergency_contact_phone': _v(_ecPhone),
+            'rfc': _v(_rfc),
+            'card_number': card.isEmpty ? null : card,
+            'clabe': clabe.isEmpty ? null : clabe,
           }),
         );
       }
 
-      // Payroll & bank — admins only
+      // Nómina (salary) — admins only
       if (id != null && _isAdmin && (_hasPayroll || isEditing)) {
         final pr = await http.put(
           u('/workers/$id/payroll'),
           headers: await authHeaders(),
           body: jsonEncode({
-            'rfc': _v(_rfc),
-            'card_number': card.isEmpty ? null : card,
-            'clabe': clabe.isEmpty ? null : clabe,
             'sdi': _money(_sdi),
             'extra_hour_cost': _money(_extraHour),
             'compensation': _money(_compensation),
@@ -517,17 +517,17 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             ]),
             const SizedBox(height: 12),
 
-            // ---------- Fiscal & bank (admins only) ----------
-            if (_isAdmin) ...[
-              _sectionCard('DATOS FISCALES Y BANCO (OPCIONAL)', [
-                _field(_rfc, 'RFC', caps: true, maxLen: 13),
-                _field(_cardNumber, 'NÚMERO DE TARJETA',
-                    kb: TextInputType.number, maxLen: 19),
-                _field(_clabe, 'CLABE', kb: TextInputType.number, maxLen: 18),
-              ]),
-              const SizedBox(height: 12),
+            // ---------- Fiscal & bank (all users) ----------
+            _sectionCard('DATOS FISCALES Y BANCO (OPCIONAL)', [
+              _field(_rfc, 'RFC', caps: true, maxLen: 13),
+              _field(_cardNumber, 'NÚMERO DE TARJETA',
+                  kb: TextInputType.number, maxLen: 19),
+              _field(_clabe, 'CLABE', kb: TextInputType.number, maxLen: 18),
+            ]),
+            const SizedBox(height: 12),
 
-              // ---------- Payroll ----------
+            // ---------- Nómina / salary (admins only) ----------
+            if (_isAdmin)
               _sectionCard('NÓMINA (OPCIONAL)', [
                 _field(_sdi, 'SDI',
                     kb: const TextInputType.numberWithOptions(decimal: true),
@@ -544,7 +544,6 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
                 _field(_infonavit, 'PRÉSTAMO INFONAVIT', caps: true),
                 _field(_fonacot, 'PRÉSTAMO FONACOT', caps: true),
               ]),
-            ],
             const SizedBox(height: 20),
 
             // ---------- Save ----------

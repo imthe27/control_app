@@ -34,7 +34,8 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> loadWorkers() async {
     try {
-      final response = await http.get(u('/workers/'));
+      final response =
+          await http.get(u('/workers/'), headers: await authHeaders(json: false));
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         setState(() {
