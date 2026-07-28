@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/api.dart';
 import 'package:control_app/screens/models/worker.dart';
+import 'screen_worker_form.dart';
 
-/// Personal info card of a worker: NSS, CURP, phone, address,
-/// blood type and emergency contact — with an edit form.
+/// Read-only ficha of a worker: personal info, fiscal/bank data, nómina
+/// (admins) and obra history. Editing is handled by WorkerFormScreen.
 class WorkerDetailScreen extends StatefulWidget {
   final Worker worker;
   const WorkerDetailScreen({super.key, required this.worker});
@@ -49,10 +51,14 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
         final all = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(resp.bodyBytes)));
         setState(() {
-          _data = all.firstWhere(
+          final found = all.firstWhere(
                 (w) => w['id'] == widget.worker.id,
             orElse: () => <String, dynamic>{},
           );
+          // Not found (e.g. deleted elsewhere): keep _data null so the ficha
+          // shows "SIN REGISTRAR" and editing is blocked, instead of handing
+          // the form an empty row and PUTting to /workers/null.
+          _data = found.isEmpty ? null : found;
           _loading = false;
         });
       } else {
@@ -64,15 +70,17 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
   }
 
   Future<void> _edit() async {
-    if (_data == null) return;
+    if (_data == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('No se pudieron cargar los datos del trabajador')),
+      );
+      return;
+    }
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => _WorkerDetailsForm(
-          workerId: widget.worker.id,
-          data: _data!,
-          isAdmin: _isAdmin,
-        ),
+        builder: (_) => WorkerFormScreen(worker: _data),
       ),
     );
     if (saved == true) _load();
@@ -82,10 +90,17 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
   Widget build(BuildContext context) {
     final w = widget.worker;
     final d = _data ?? {};
+    // widget.worker is the row the list handed us; it goes stale after an
+    // edit, so prefer the freshly loaded row whenever we have one.
+    final name = (d['name'] as String?) ?? w.name;
+    final role = (d['role'] as String?) ?? w.role;
+    final project = (d['project'] as String?) ?? w.project;
+    // Trust a loaded row even when photo_url is null (the photo was cleared).
+    final photoUrl = _data != null ? d['photo_url'] as String? : w.photoUrl;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(w.name.toUpperCase()),
+        title: Text(name.toUpperCase()),
         titleTextStyle: const TextStyle(
             color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
         backgroundColor: const Color(0xFF1C1CF0),
@@ -126,11 +141,11 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                       child: SizedBox(
                         width: 72,
                         height: 72,
-                        child: w.photoUrl != null
+                        child: photoUrl != null
                             ? CachedNetworkImage(
-                          imageUrl: w.photoUrl!,
+                          imageUrl: photoUrl,
                           fit: BoxFit.cover,
-                          errorWidget: (c, u, e) => const Icon(
+                          errorWidget: (c, url, e) => const Icon(
                               Icons.person,
                               size: 40),
                         )
@@ -146,12 +161,12 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(w.name,
+                          Text(name,
                               style: const TextStyle(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w700)),
                           const SizedBox(height: 4),
-                          Text(w.role.toUpperCase(),
+                          Text(role.toUpperCase(),
                               style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
@@ -164,7 +179,7 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                               color: Colors.blue[50],
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(w.project,
+                            child: Text(project,
                                 style: TextStyle(
                                     fontSize: 11,
                                     color: Colors.blue[700],
@@ -207,8 +222,11 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
             const SizedBox(height: 12),
             _infoCard('DATOS FISCALES Y BANCO', [
               _row(Icons.receipt_long, 'RFC', d['rfc']),
-              _row(Icons.credit_card, 'NÚMERO DE TARJETA', d['card_number']),
-              _row(Icons.account_balance, 'CLABE', d['clabe'], last: true),
+              _row(Icons.credit_card, 'NÚMERO DE TARJETA',
+                  _maskCard(d['card_number']),
+                  copyValue: d['card_number']),
+              _row(Icons.account_balance, 'CLABE', d['clabe'],
+                  copyValue: d['clabe'], last: true),
             ]),
             if (_isAdmin) ...[
               const SizedBox(height: 12),
@@ -217,10 +235,12 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                 _row(Icons.more_time, 'COSTO HORA EXTRA',
                     _money(d['extra_hour_cost'])),
                 _row(Icons.add_card, 'COMPENSACIÓN', _money(d['compensation'])),
+                _row(Icons.add_card, 'COMPENSACIÓN 2',
+                    _money(d['compensation_2'])),
                 _row(Icons.money_off, 'PRÉSTAMO PERSONAL',
                     _money(d['personal_loan'])),
-                _row(Icons.home_work, 'PRÉSTAMO INFONAVIT', d['infonavit']),
-                _row(Icons.savings, 'PRÉSTAMO FONACOT', d['fonacot'],
+                _row(Icons.home_work, 'PRÉSTAMO INFONAVIT', _money(d['infonavit'])),
+                _row(Icons.savings, 'PRÉSTAMO FONACOT', _money(d['fonacot']),
                     last: true),
               ]),
             ],
@@ -320,7 +340,8 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
     );
   }
 
-  Widget _row(IconData icon, String label, dynamic value, {bool last = false}) {
+  Widget _row(IconData icon, String label, dynamic value,
+      {bool last = false, dynamic copyValue}) {
     final text = (value == null || value.toString().trim().isEmpty)
         ? null
         : value.toString();
@@ -358,12 +379,32 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                   ],
                 ),
               ),
+              if (copyValue != null &&
+                  copyValue.toString().trim().isNotEmpty)
+                IconButton(
+                  tooltip: 'COPIAR',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.copy, size: 17, color: Colors.grey[500]),
+                  onPressed: () {
+                    Clipboard.setData(
+                        ClipboardData(text: copyValue.toString()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$label copiado')),
+                    );
+                  },
+                ),
             ],
           ),
         ),
         if (!last) Divider(height: 1, color: Colors.grey[200]),
       ],
     );
+  }
+
+  String _maskCard(dynamic n) {
+    final s = (n ?? '').toString();
+    if (s.length < 4) return '';
+    return '•••• •••• •••• ${s.substring(s.length - 4)}';
   }
 
   String? _money(dynamic v) {
@@ -389,273 +430,6 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                 )),
             const SizedBox(height: 4),
             ...rows,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================
-// Edit form for the personal fields
-// ============================================================
-class _WorkerDetailsForm extends StatefulWidget {
-  final int workerId;
-  final Map<String, dynamic> data;
-  final bool isAdmin;
-  const _WorkerDetailsForm(
-      {required this.workerId, required this.data, required this.isAdmin});
-
-  @override
-  State<_WorkerDetailsForm> createState() => _WorkerDetailsFormState();
-}
-
-class _WorkerDetailsFormState extends State<_WorkerDetailsForm> {
-  late final _nss =
-  TextEditingController(text: widget.data['nss'] ?? '');
-  late final _curp =
-  TextEditingController(text: widget.data['curp'] ?? '');
-  late final _phone =
-  TextEditingController(text: widget.data['phone'] ?? '');
-  late final _address =
-  TextEditingController(text: widget.data['address'] ?? '');
-  late final _blood =
-  TextEditingController(text: widget.data['blood_type'] ?? '');
-  late final _ecName = TextEditingController(
-      text: widget.data['emergency_contact_name'] ?? '');
-  late final _ecPhone = TextEditingController(
-      text: widget.data['emergency_contact_phone'] ?? '');
-  // Fiscal & bank (all users)
-  late final _rfc = TextEditingController(text: widget.data['rfc'] ?? '');
-  late final _card =
-      TextEditingController(text: widget.data['card_number'] ?? '');
-  late final _clabe = TextEditingController(text: widget.data['clabe'] ?? '');
-  // Nómina (admins only)
-  late final _sdi = TextEditingController(text: _fmt(widget.data['sdi']));
-  late final _extraHour =
-      TextEditingController(text: _fmt(widget.data['extra_hour_cost']));
-  late final _compensation =
-      TextEditingController(text: _fmt(widget.data['compensation']));
-  late final _loan =
-      TextEditingController(text: _fmt(widget.data['personal_loan']));
-  late final _infonavit =
-      TextEditingController(text: widget.data['infonavit'] ?? '');
-  late final _fonacot =
-      TextEditingController(text: widget.data['fonacot'] ?? '');
-  bool _saving = false;
-
-  static String _fmt(dynamic v) =>
-      v == null ? '' : (v as num).toDouble().toStringAsFixed(2);
-
-  String? _v(TextEditingController c) =>
-      c.text.trim().isEmpty ? null : c.text.trim();
-
-  double? _money(TextEditingController c) =>
-      double.tryParse(c.text.trim().replaceAll(',', ''));
-
-  void _err(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.red));
-  }
-
-  Future<void> _save() async {
-    final card = _card.text.replaceAll(RegExp(r'[^0-9]'), '');
-    final clabe = _clabe.text.replaceAll(RegExp(r'[^0-9]'), '');
-    if (card.isNotEmpty && card.length != 16) {
-      _err('La tarjeta debe tener 16 dígitos');
-      return;
-    }
-    if (clabe.isNotEmpty && clabe.length != 18) {
-      _err('La CLABE debe tener 18 dígitos');
-      return;
-    }
-
-    setState(() => _saving = true);
-    try {
-      final resp = await http.put(
-        u('/workers/${widget.workerId}/details'),
-        headers: await authHeaders(),
-        body: jsonEncode({
-          'nss': _v(_nss),
-          'curp': _v(_curp),
-          'phone': _v(_phone),
-          'address': _v(_address),
-          'blood_type': _v(_blood),
-          'emergency_contact_name': _v(_ecName),
-          'emergency_contact_phone': _v(_ecPhone),
-          'rfc': _v(_rfc),
-          'card_number': card.isEmpty ? null : card,
-          'clabe': clabe.isEmpty ? null : clabe,
-        }),
-      );
-      if (!mounted) return;
-      if (resp.statusCode != 200) {
-        setState(() => _saving = false);
-        _err('Error al guardar (HTTP ${resp.statusCode})');
-        return;
-      }
-
-      // Nómina (salary) — admins only
-      if (widget.isAdmin) {
-        final pr = await http.put(
-          u('/workers/${widget.workerId}/payroll'),
-          headers: await authHeaders(),
-          body: jsonEncode({
-            'sdi': _money(_sdi),
-            'extra_hour_cost': _money(_extraHour),
-            'compensation': _money(_compensation),
-            'personal_loan': _money(_loan),
-            'infonavit': _v(_infonavit),
-            'fonacot': _v(_fonacot),
-          }),
-        );
-        if (!mounted) return;
-        if (pr.statusCode != 200) {
-          setState(() => _saving = false);
-          _err('Se guardó la ficha, pero la nómina no');
-          return;
-        }
-      }
-
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _saving = false);
-      _err('Error: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget field(TextEditingController c, String label,
-        {TextInputType? kb, bool money = false, int? maxLen}) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: TextField(
-          controller: c,
-          keyboardType: kb,
-          maxLength: maxLen,
-          decoration: InputDecoration(
-            labelText: label,
-            labelStyle: const TextStyle(fontSize: 14),
-            prefixText: money ? '\$ ' : null,
-            counterText: '',
-          ),
-        ),
-      );
-    }
-
-    Widget sectionCard(String title, List<Widget> children) {
-      return Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.grey[600],
-                    letterSpacing: 0.8,
-                  )),
-              ...children,
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('EDITAR FICHA'),
-        titleTextStyle: const TextStyle(
-            color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-        backgroundColor: const Color(0xFF1C1CF0),
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Container(
-        constraints: const BoxConstraints.expand(),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1C1CF0), Color(0xFF0000CD)],
-          ),
-        ),
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    field(_nss, 'NSS', kb: TextInputType.number),
-                    field(_curp, 'CURP'),
-                    field(_phone, 'TELÉFONO', kb: TextInputType.phone),
-                    field(_address, 'DIRECCIÓN'),
-                    field(_blood, 'TIPO DE SANGRE (EJ. O+)'),
-                    field(_ecName, 'CONTACTO DE EMERGENCIA'),
-                    field(_ecPhone, 'TEL. DE EMERGENCIA',
-                        kb: TextInputType.phone),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            sectionCard('DATOS FISCALES Y BANCO', [
-              field(_rfc, 'RFC'),
-              field(_card, 'NÚMERO DE TARJETA',
-                  kb: TextInputType.number, maxLen: 19),
-              field(_clabe, 'CLABE', kb: TextInputType.number, maxLen: 18),
-            ]),
-            if (widget.isAdmin) ...[
-              const SizedBox(height: 12),
-              sectionCard('NÓMINA', [
-                field(_sdi, 'SDI',
-                    kb: const TextInputType.numberWithOptions(decimal: true),
-                    money: true),
-                field(_extraHour, 'COSTO HORA EXTRA',
-                    kb: const TextInputType.numberWithOptions(decimal: true),
-                    money: true),
-                field(_compensation, 'COMPENSACIÓN',
-                    kb: const TextInputType.numberWithOptions(decimal: true),
-                    money: true),
-                field(_loan, 'PRÉSTAMO PERSONAL',
-                    kb: const TextInputType.numberWithOptions(decimal: true),
-                    money: true),
-                field(_infonavit, 'PRÉSTAMO INFONAVIT'),
-                field(_fonacot, 'PRÉSTAMO FONACOT'),
-              ]),
-            ],
-            const SizedBox(height: 20),
-            SizedBox(
-              height: 52,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF1C1CF0),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Color(0xFF1C1CF0)))
-                    : const Icon(Icons.save),
-                label: Text(_saving ? 'GUARDANDO...' : 'GUARDAR FICHA',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15)),
-              ),
-            ),
           ],
         ),
       ),

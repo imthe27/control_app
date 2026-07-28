@@ -26,6 +26,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
   final _sdi = TextEditingController();
   final _extraHour = TextEditingController();
   final _compensation = TextEditingController();
+  final _compensation2 = TextEditingController();
   final _loan = TextEditingController();
   final _infonavit = TextEditingController();
   final _fonacot = TextEditingController();
@@ -73,16 +74,22 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
       _sdi.text = _fmt(w['sdi']);
       _extraHour.text = _fmt(w['extra_hour_cost']);
       _compensation.text = _fmt(w['compensation']);
+      _compensation2.text = _fmt(w['compensation_2']);
       _loan.text = _fmt(w['personal_loan']);
-      _infonavit.text = (w['infonavit'] ?? '').toString();
-      _fonacot.text = (w['fonacot'] ?? '').toString();
+      _infonavit.text = _fmt(w['infonavit']);
+      _fonacot.text = _fmt(w['fonacot']);
       _existingPhoto = w['photo_url'];
       _projectId = w['project_id'];
     }
   }
 
-  static String _fmt(dynamic v) =>
-      v == null ? '' : (v as num).toDouble().toStringAsFixed(2);
+  /// Money value -> "1234.50" for the text fields. Tolerates the API sending
+  /// a string: a bare `as num` cast would throw and break the whole form.
+  static String _fmt(dynamic v) {
+    if (v == null) return '';
+    final n = v is num ? v.toDouble() : double.tryParse(v.toString());
+    return n == null ? '' : n.toStringAsFixed(2);
+  }
 
   Future<void> _loadMe() async {
     try {
@@ -98,7 +105,8 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
   Future<void> _loadProjects() async {
     try {
-      final resp = await http.get(u('/projects'));
+      final resp =
+          await http.get(u('/projects'), headers: await authHeaders(json: false));
       if (!mounted) return;
       if (resp.statusCode == 200) {
         final list = List<Map<String, dynamic>>.from(
@@ -126,7 +134,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
     for (final c in [
       _name, _role, _nss, _curp, _phone, _address, _blood,
       _ecName, _ecPhone, _rfc, _cardNumber, _clabe, _sdi,
-      _extraHour, _compensation, _loan, _infonavit, _fonacot
+      _extraHour, _compensation, _compensation2, _loan, _infonavit, _fonacot
     ]) {
       c.dispose();
     }
@@ -147,7 +155,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
       double.tryParse(c.text.trim().replaceAll(',', ''));
 
   bool get _hasPayroll => [
-    _sdi, _extraHour, _compensation, _loan, _infonavit, _fonacot
+    _sdi, _extraHour, _compensation, _compensation2, _loan, _infonavit, _fonacot
   ].any((c) => c.text.trim().isNotEmpty);
 
   bool get _hasDetails => [
@@ -220,6 +228,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
   Future<String?> _uploadPhoto(File file) async {
     final req = http.MultipartRequest(
         'POST', u('/upload-photo/'));
+    req.headers.addAll(await authHeaders(json: false));
     req.files.add(await http.MultipartFile.fromPath('file', file.path));
     final resp = await req.send();
     if (resp.statusCode == 200) {
@@ -286,7 +295,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
       // Personal info
       if (id != null && (_hasDetails || isEditing)) {
-        await http.put(
+        final dr = await http.put(
           u('/workers/$id/details'),
           headers: await authHeaders(),
           body: jsonEncode({
@@ -302,6 +311,12 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             'clabe': clabe.isEmpty ? null : clabe,
           }),
         );
+        if (!mounted) return;
+        if (dr.statusCode != 200) {
+          setState(() => _saving = false);
+          _showError('Se guardaron los datos básicos, pero la ficha no');
+          return;
+        }
       }
 
       // Nómina (salary) — admins only
@@ -313,9 +328,10 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             'sdi': _money(_sdi),
             'extra_hour_cost': _money(_extraHour),
             'compensation': _money(_compensation),
+            'compensation_2': _money(_compensation2),
             'personal_loan': _money(_loan),
-            'infonavit': _v(_infonavit),
-            'fonacot': _v(_fonacot),
+            'infonavit': _money(_infonavit),
+            'fonacot': _money(_fonacot),
           }),
         );
         if (mounted && pr.statusCode != 200) {
@@ -475,23 +491,19 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
                     child: DropdownButton<int?>(
                       value: _projectId,
                       isExpanded: true,
-                      hint: const Text('OBRA BASE'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('OBRA BASE'),
-                        ),
-                        ..._projects.map(
-                              (p) => DropdownMenuItem<int?>(
-                            value: p['id'],
-                            child: Text(
-                              (p['name'] ?? '').toString(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                      hint: const Text('SELECCIONA UNA OBRA'),
+                      items: _projects
+                          .map(
+                            (p) => DropdownMenuItem<int?>(
+                              value: p['id'],
+                              child: Text(
+                                (p['name'] ?? '').toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
+                          )
+                          .toList(),
                       onChanged: (v) => setState(() => _projectId = v),
                     ),
                   ),
@@ -521,14 +533,14 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             _sectionCard('DATOS FISCALES Y BANCO (OPCIONAL)', [
               _field(_rfc, 'RFC', caps: true, maxLen: 13),
               _field(_cardNumber, 'NÚMERO DE TARJETA',
-                  kb: TextInputType.number, maxLen: 19),
+                  kb: TextInputType.number, maxLen: 16),
               _field(_clabe, 'CLABE', kb: TextInputType.number, maxLen: 18),
             ]),
             const SizedBox(height: 12),
 
             // ---------- Nómina / salary (admins only) ----------
             if (_isAdmin)
-              _sectionCard('NÓMINA (OPCIONAL)', [
+              _sectionCard('NÓMINA', [
                 _field(_sdi, 'SDI',
                     kb: const TextInputType.numberWithOptions(decimal: true),
                     money: true),
@@ -538,11 +550,18 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
                 _field(_compensation, 'COMPENSACIÓN',
                     kb: const TextInputType.numberWithOptions(decimal: true),
                     money: true),
+                _field(_compensation2, 'COMPENSACIÓN 2',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
                 _field(_loan, 'PRÉSTAMO PERSONAL',
                     kb: const TextInputType.numberWithOptions(decimal: true),
                     money: true),
-                _field(_infonavit, 'PRÉSTAMO INFONAVIT', caps: true),
-                _field(_fonacot, 'PRÉSTAMO FONACOT', caps: true),
+                _field(_infonavit, 'PRÉSTAMO INFONAVIT',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
+                _field(_fonacot, 'PRÉSTAMO FONACOT',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                    money: true),
               ]),
             const SizedBox(height: 20),
 

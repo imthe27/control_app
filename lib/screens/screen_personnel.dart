@@ -19,7 +19,10 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   bool isLoading = true;
   bool _isAdmin = false;
   String searchQuery = '';
-  Set<int> selectedIndexes = {};
+
+  /// Selected worker IDs — not list indexes, which shift when the search
+  /// filter is active and would target the wrong worker.
+  Set<int> selectedIds = {};
 
   //final List<String> _roles = ['Electricista', 'Albañil', 'Plomero', 'Herrero'];
   //String roleFilter = 'TODOS';  to be defined roles
@@ -34,8 +37,11 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> loadWorkers() async {
     try {
-      final response =
-          await http.get(u('/workers/'), headers: await authHeaders(json: false));
+      final response = await http.get(
+        u('/workers'),
+        headers: await authHeaders(json: false),
+      );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         setState(() {
@@ -49,7 +55,8 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         throw Exception('Error al cargar trabajadores');
       }
     } catch (e) {
-      print('Error al cargar trabajadores: $e');
+      debugPrint('Error al cargar trabajadores: $e');
+      if (!mounted) return;
       setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -70,7 +77,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       final me = jsonDecode(resp.body) as Map<String, dynamic>;
       setState(() => _isAdmin = me['is_admin'] == true);
     } catch (_) {
-      // not admin / offline: FAB stays hidden
+      // not admin / offline: admin-only actions stay hidden
     }
   }
 
@@ -84,12 +91,13 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> deleteWorkersFromBackend(List<int> ids) async {
     final response = await http.post(
-      u('/delete-workers/'),
+      u('/delete-workers'),
       headers: await authHeaders(),
       body: jsonEncode({'ids': ids}),
     );
+    if (!mounted) return;
     if (response.statusCode != 200) {
-      print('Error al eliminar trabajadores: ${response.body}');
+      debugPrint('Error al eliminar trabajadores: ${response.body}');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Error al eliminar trabajadores')),
       );
@@ -109,8 +117,9 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'INGRESA LA CONTRASEÑA PARA ELIMINAR LOS TRABAJADORES SELECCIONADOS:',
+            Text(
+              'VAS A ELIMINAR ${selectedIds.length} TRABAJADOR(ES). '
+              'INGRESA LA CONTRASEÑA PARA CONFIRMAR:',
             ),
             TextField(
               obscureText: true,
@@ -127,13 +136,13 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
           ElevatedButton(
             onPressed: () async {
               if (password == 'Mony1705') {
-                final idsToDelete = selectedIndexes
-                    .map((i) => workers[i].id)
-                    .toList();
+                final navigator = Navigator.of(context);
+                final idsToDelete = selectedIds.toList();
                 await deleteWorkersFromBackend(idsToDelete);
                 await loadWorkers();
-                setState(() => selectedIndexes.clear());
-                Navigator.pop(context);
+                if (!mounted) return;
+                setState(() => selectedIds.clear());
+                navigator.pop();
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('CONTRASEÑA INCORRECTA')),
@@ -152,8 +161,10 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   }
 
   String _getInitials(String name) {
-    final parts = name.split(' ');
-    return parts.map((p) => p[0]).take(2).join('').toUpperCase();
+    // Skip empty segments: a trailing/double space would otherwise make
+    // p[0] throw a RangeError on an empty string.
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+    return parts.map((p) => p[0]).take(2).join().toUpperCase();
   }
 
   @override
@@ -214,13 +225,25 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         ),
         elevation: 0,
         actions: [
-          if (selectedIndexes.isNotEmpty) ...[
-            if (selectedIndexes.length == 1)
-            IconButton(
-              icon: const Icon(Icons.delete),
-              color: Colors.white,
-              onPressed: _confirmDeleteSelected,
+          if (selectedIds.isNotEmpty) ...[
+            Center(
+              child: Text(
+                '${selectedIds.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
+            // Deleting workers is admin-only server-side; hide it for the rest.
+            if (_isAdmin)
+              IconButton(
+                tooltip: 'ELIMINAR SELECCIONADOS',
+                icon: const Icon(Icons.delete),
+                color: Colors.white,
+                onPressed: _confirmDeleteSelected,
+              ),
           ],
         ],
       ),
@@ -277,11 +300,19 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
               ),
               Expanded(
                 child: filteredWorkers.isEmpty
-                    ? Center(
-                        child: Text(
-                          'NO HAY TRABAJADORES',
-                          style: TextStyle(color: Colors.white70),
-                        ),
+                    // Scrollable so pull-to-refresh still works when empty
+                    // (e.g. after a failed load).
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(height: 120),
+                          Center(
+                            child: Text(
+                              'NO HAY TRABAJADORES',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          ),
+                        ],
                       )
                     : GridView.builder(
                         padding: const EdgeInsets.symmetric(
@@ -298,16 +329,16 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                         itemCount: filteredWorkers.length,
                         itemBuilder: (context, index) {
                           final worker = filteredWorkers[index];
-                          final isSelected = selectedIndexes.contains(index);
+                          final isSelected = selectedIds.contains(worker.id);
                           return _WorkerCard(
                             worker: worker,
                             isSelected: isSelected,
                             onTap: () {
-                              if (selectedIndexes.isNotEmpty) {
+                              if (selectedIds.isNotEmpty) {
                                 setState(() {
                                   isSelected
-                                      ? selectedIndexes.remove(index)
-                                      : selectedIndexes.add(index);
+                                      ? selectedIds.remove(worker.id)
+                                      : selectedIds.add(worker.id);
                                 });
                               } else {
                                 Navigator.push(
@@ -322,8 +353,8 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                             onLongPress: () {
                               setState(() {
                                 isSelected
-                                    ? selectedIndexes.remove(index)
-                                    : selectedIndexes.add(index);
+                                    ? selectedIds.remove(worker.id)
+                                    : selectedIds.add(worker.id);
                               });
                             },
                             initials: _getInitials(worker.name),
@@ -339,7 +370,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         onPressed: _openWorkerForm,
         backgroundColor: const Color(0xFF1C1CF0),
         child: const Icon(Icons.person_add, color: Colors.white),
-      )
+      ),
     );
   }
 
