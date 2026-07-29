@@ -33,16 +33,23 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
 
   Future<void> refreshWorkers() async {
     try {
-      final resp = await http.get(u('/workers'));
+      final resp = await http.get(
+        u('/workers'),
+        headers: await authHeaders(json: false),
+      );
 
       final ct = resp.headers['content-type'] ?? '';
       if (resp.statusCode != 200) {
+        if (!mounted) return;
+        setState(() => isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Workers HTTP ${resp.statusCode}')),
         );
         return;
       }
       if (!ct.contains('application/json')) {
+        if (!mounted) return;
+        setState(() => isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Respuesta no JSON (¿HTML/login?)')),
         );
@@ -78,7 +85,8 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
         isLoading = false;
       });
     } catch (e) {
-      isLoading = false;
+      if (!mounted) return;
+      setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error de red/parseo: $e')),
       );

@@ -116,14 +116,27 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
   Future<void> _addWorker() async {
     // Search over ALL workers and add anyone not already listed
     List<Map<String, dynamic>> all = [];
+    String? loadError;
     try {
-      final resp = await http.get(u('/workers?active_only=false'));
+      final resp = await http.get(
+        u('/workers?active_only=false'),
+        headers: await authHeaders(json: false),
+      );
       if (resp.statusCode == 200) {
         all = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(resp.bodyBytes)));
+      } else {
+        loadError = 'No se pudo cargar la lista (HTTP ${resp.statusCode})';
       }
-    } catch (_) {}
+    } catch (e) {
+      loadError = 'Error de red al cargar la lista';
+    }
     if (!mounted) return;
+    // Surface the failure instead of opening an empty picker.
+    if (loadError != null) {
+      _snack(loadError, error: true);
+      return;
+    }
 
     String query = '';
     final picked = await showDialog<Map<String, dynamic>>(
