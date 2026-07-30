@@ -41,6 +41,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         final storage = FlutterSecureStorage();
         await storage.write(key: 'auth_token', value: token);
+        // Re-arm the global 401 guard: this session is valid again.
+        resetUnauthorizedGuard();
 
         Navigator.pushReplacementNamed(context, '/home');
       } else {

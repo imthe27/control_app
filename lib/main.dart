@@ -7,9 +7,20 @@ import 'screens/screen_project_selection.dart';
 import 'screens/screen_personnel.dart';
 import 'screens/screen_record_attendance.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' show runWithClient;
+import 'package:control_app/api.dart' show AuthClient, navigatorKey;
 
+/// [runWithClient] installs [AuthClient] for the whole zone, so every
+/// top-level `http.get`/`http.post` in the app routes through it and an
+/// expired session is caught in one place — including from call sites added
+/// later, which is the part an opt-in check cannot guarantee.
+///
+/// Anything that needs early binding initialisation
+/// (`WidgetsFlutterBinding.ensureInitialized()`) must go **inside** this
+/// callback. Initialising the binding in a different zone from [runApp]
+/// throws a zone-mismatch error at startup.
 void main() {
-  runApp(const MainApp());
+  runWithClient(() => runApp(const MainApp()), AuthClient.new);
 }
 
 const String baseUrlProd = 'https://api.cotelsa-app.com';
@@ -22,6 +33,7 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'COTELSA',
       theme: ThemeData(
         scaffoldBackgroundColor: const Color(0xFF1C1CF0),
