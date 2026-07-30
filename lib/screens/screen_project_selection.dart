@@ -8,8 +8,7 @@ import 'screen_project.dart';
 import 'screen_project_form.dart';
 import 'screen_record_attendance.dart';
 import 'package:control_app/main.dart' show baseUrl;
-
-Uri u(String path) => Uri.parse('$baseUrl$path');
+import 'package:control_app/api.dart';
 
 /// Builds a loadable image URL from whatever the API returns.
 /// Handles: null, bare filenames, relative "/media/..." paths, and
@@ -122,7 +121,9 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
       onLongPress: () {
         HapticFeedback.mediumImpact();
         setState(() {
-          selectedIndexes.add(index);
+          isSelected
+              ? selectedIndexes.remove(index)
+              : selectedIndexes.add(index);
         });
       },
       child: Card(
@@ -428,10 +429,11 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
           );
         }),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: _openProjectForm,
         tooltip: 'AGREGAR OBRA',
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.add, color: Color(0xFF1C1CF0)),
+        label: const Text('AGREGAR OBRA', style: TextStyle(color: Color(0xFF1C1CF0))),
       ),
     );
   }

@@ -2,23 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
-import 'package:control_app/main.dart' show baseUrl;
-
-Uri _u(String path) => Uri.parse('$baseUrl$path');
-
-Future<Map<String, String>> _authHeaders() async {
-  const storage = FlutterSecureStorage();
-  final token = await storage.read(key: 'auth_token');
-  return {
-    'Content-Type': 'application/json',
-    if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
-  };
-}
+import 'package:control_app/api.dart';
 
 // ============================================================
 // LOGBOOK tab (lives inside ProjectDetailScreen)
@@ -56,13 +44,13 @@ class _LogbookTabState extends State<LogbookTab>
 
   Future<void> _load() async {
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final results = await Future.wait([
-        http.get(_u('/projects/$_projectId/notes')),
-        http.post(_u('/projects/$_projectId/partidas/sync-from-catalog'),
+        http.get(u('/projects/$_projectId/notes')),
+        http.post(u('/projects/$_projectId/partidas/sync-from-catalog'),
             headers: headers),
-        http.get(_u('/me'), headers: headers),
-        http.get(_u('/projects/$_projectId/catalog-items')),
+        http.get(u('/me'), headers: headers),
+        http.get(u('/projects/$_projectId/catalog-items')),
       ]);
 
       if (!mounted) return;
@@ -78,7 +66,7 @@ class _LogbookTabState extends State<LogbookTab>
         partidas = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(results[1].bodyBytes)));
       } else {
-        final pg = await http.get(_u('/projects/$_projectId/partidas'));
+        final pg = await http.get(u('/projects/$_projectId/partidas'));
         partidas = pg.statusCode == 200
             ? List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(pg.bodyBytes)))
@@ -232,9 +220,9 @@ class _LogbookTabState extends State<LogbookTab>
     if (confirm != true) return;
 
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp = await http.delete(
-          _u('/notes/${note['id']}'), headers: headers);
+          u('/notes/${note['id']}'), headers: headers);
       if (!mounted) return;
       if (resp.statusCode == 200) {
         _load();
@@ -863,9 +851,9 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
 
     setState(() => _busy = true);
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp = await http.delete(
-        _u('/notes/${widget.note['id']}'),
+        u('/notes/${widget.note['id']}'),
         headers: headers,
       );
       if (!mounted) return;
@@ -1234,7 +1222,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
   }
 
   Future<String?> _uploadPhoto(File file) async {
-    final request = http.MultipartRequest('POST', _u('/upload-photo/'));
+    final request = http.MultipartRequest('POST', u('/upload-photo/'));
     request.files.add(await http.MultipartFile.fromPath('file', file.path));
     final response = await request.send();
     if (response.statusCode == 200) {
@@ -1256,7 +1244,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     List<Map<String, dynamic>> catalog = [];
     try {
       final resp =
-      await http.get(_u('/projects/${widget.projectId}/catalog-items'));
+      await http.get(u('/projects/${widget.projectId}/catalog-items'));
       if (resp.statusCode == 200) {
         catalog = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(resp.bodyBytes)));
@@ -1379,9 +1367,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     }
 
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp = await http.post(
-        _u('/projects/${widget.projectId}/partidas'),
+        u('/projects/${widget.projectId}/partidas'),
         headers: headers,
         body: jsonEncode({
           'code': codeController.text
@@ -1445,7 +1433,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       }
 
       // 2. Create or update the note
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final keptFilenames = _existingPhotos
           .map((url) =>
       Uri
@@ -1466,9 +1454,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         'avance_quantity': avanceQty,
       });
       final response = isEditing
-          ? await http.put(_u('/notes/${widget.noteToEdit!['id']}'),
+          ? await http.put(u('/notes/${widget.noteToEdit!['id']}'),
           headers: headers, body: body)
-          : await http.post(_u('/projects/${widget.projectId}/notes'),
+          : await http.post(u('/projects/${widget.projectId}/notes'),
           headers: headers, body: body);
 
       if (!mounted) return;
@@ -1904,9 +1892,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
   /// Falls back to a plain load if the sync fails (e.g. no permission).
   Future<void> _syncThenLoad() async {
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp = await http.post(
-        _u('/projects/${widget.projectId}/partidas/sync-from-catalog'),
+        u('/projects/${widget.projectId}/partidas/sync-from-catalog'),
         headers: headers,
       );
       if (!mounted) return;
@@ -1933,7 +1921,7 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
 
   Future<void> _load() async {
     try {
-      final resp = await http.get(_u('/projects/${widget.projectId}/partidas'));
+      final resp = await http.get(u('/projects/${widget.projectId}/partidas'));
       if (!mounted) return;
       setState(() {
         _partidas = resp.statusCode == 200
@@ -1965,9 +1953,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
 
     setState(() => _adding = true);
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp = await http.post(
-        _u('/projects/${widget.projectId}/partidas'),
+        u('/projects/${widget.projectId}/partidas'),
         headers: headers,
         body: jsonEncode({
           'code': _codeController.text
@@ -2114,9 +2102,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
     }
 
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp = await http.put(
-        _u('/partidas/${partida['id']}'),
+        u('/partidas/${partida['id']}'),
         headers: headers,
         body: jsonEncode({
           'code': code.text.trim().isEmpty ? null : code.text.trim(),
@@ -2162,9 +2150,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
 
   Future<void> _delete(Map<String, dynamic> partida) async {
     try {
-      final headers = await _authHeaders();
+      final headers = await authHeaders();
       final resp =
-      await http.delete(_u('/partidas/${partida['id']}'), headers: headers);
+      await http.delete(u('/partidas/${partida['id']}'), headers: headers);
       if (!mounted) return;
       if (resp.statusCode == 200) {
         _load();

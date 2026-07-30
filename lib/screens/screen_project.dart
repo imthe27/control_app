@@ -3,7 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
-import 'package:control_app/main.dart' show baseUrl;
+import 'package:control_app/api.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'screen_logbook.dart';
 import 'screen_catalog.dart';
@@ -32,7 +32,7 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
 
   Future<void> _refreshProject() async {
     try {
-      final resp = await http.get(Uri.parse('$baseUrl/projects'));
+      final resp = await http.get(u('/projects'));
       if (!mounted || resp.statusCode != 200) return;
       final all = List<Map<String, dynamic>>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)));

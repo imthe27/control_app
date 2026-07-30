@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:control_app/main.dart' show baseUrl;
-
-Uri u(String path) => Uri.parse('$baseUrl$path');
+import 'package:control_app/api.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final response = await http.post(
         u('/login'),
-        headers: {'Content-Type': 'application/json'},
+        headers: jsonHeaders,
         body: jsonEncode({
           'username': _usernameController.text.trim(),
           'password': _passwordController.text.trim(),

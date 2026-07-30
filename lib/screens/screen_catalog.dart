@@ -3,22 +3,10 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
-import 'package:control_app/main.dart' show baseUrl;
-
-Uri _u(String path) => Uri.parse('$baseUrl$path');
-
-Future<Map<String, String>> _auth({bool json = true}) async {
-  const storage = FlutterSecureStorage();
-  final token = await storage.read(key: 'auth_token');
-  return {
-    if (json) 'Content-Type': 'application/json',
-    if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
-  };
-}
+import 'package:control_app/api.dart';
 
 /// CATÁLOGO tab: the concept catalog as editable data.
 class CatalogTab extends StatefulWidget {
@@ -46,11 +34,11 @@ class _CatalogTabState extends State<CatalogTab> {
 
   Future<void> _load() async {
     try {
-      final headers = await _auth();
+      final headers = await authHeaders();
       final results = await Future.wait([
-        http.get(_u('/projects/$_projectId/catalog-items')),
-        http.get(_u('/me'), headers: headers),
-        http.get(_u('/projects/$_projectId/partidas')),
+        http.get(u('/projects/$_projectId/catalog-items')),
+        http.get(u('/me'), headers: headers),
+        http.get(u('/projects/$_projectId/partidas')),
       ]);
       if (!mounted) return;
       var canWrite = false;
@@ -117,9 +105,9 @@ class _CatalogTabState extends State<CatalogTab> {
 
     setState(() => _importing = true);
     try {
-      final headers = await _auth(json: false);
+      final headers = await authHeaders(json: false);
       final req = http.MultipartRequest(
-          'POST', _u('/projects/$_projectId/catalog-import?replace=$replace'))
+          'POST', u('/projects/$_projectId/catalog-import?replace=$replace'))
         ..headers.addAll(headers)
         ..files.add(await http.MultipartFile.fromPath(
             'file', picked.files.single.path!));
@@ -223,11 +211,11 @@ class _CatalogTabState extends State<CatalogTab> {
     });
 
     try {
-      final headers = await _auth();
+      final headers = await authHeaders();
       final resp = item == null
-          ? await http.post(_u('/projects/$_projectId/catalog-items'),
+          ? await http.post(u('/projects/$_projectId/catalog-items'),
           headers: headers, body: body)
-          : await http.put(_u('/catalog-items/${item['id']}'),
+          : await http.put(u('/catalog-items/${item['id']}'),
           headers: headers, body: body);
       if (!mounted) return;
       if (resp.statusCode == 200 || resp.statusCode == 201) {
@@ -310,8 +298,8 @@ class _CatalogTabState extends State<CatalogTab> {
 
   Future<void> _deleteItem(Map<String, dynamic> item) async {
     try {
-      final headers = await _auth();
-      final resp = await http.delete(_u('/catalog-items/${item['id']}'),
+      final headers = await authHeaders();
+      final resp = await http.delete(u('/catalog-items/${item['id']}'),
           headers: headers);
       if (!mounted) return;
       resp.statusCode == 200

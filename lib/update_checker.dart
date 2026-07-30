@@ -7,7 +7,7 @@ import 'package:open_file/open_file.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:control_app/main.dart' show baseUrl;
+import 'package:control_app/api.dart';
 
 /// Checks the server for a newer APK and guides the user through the update.
 ///
@@ -29,7 +29,7 @@ class UpdateChecker {
 
       // 2. Latest version on the server
       final resp = await http
-          .get(Uri.parse('$baseUrl/app-version'))
+          .get(u('/app-version'))
           .timeout(const Duration(seconds: 6));
 
       if (resp.statusCode != 200 ||
@@ -152,7 +152,8 @@ class UpdateChecker {
 
     final client = http.Client();
     try {
-      final request = http.Request('GET', Uri.parse('$baseUrl/app-download'));
+      // Public by design — the update channel must work without a token.
+      final request = http.Request('GET', u('/app-download'));
       final response = await client.send(request);
 
       if (response.statusCode != 200) {
