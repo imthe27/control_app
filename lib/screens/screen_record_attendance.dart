@@ -603,7 +603,7 @@ class _AttendanceCard extends StatefulWidget {
 }
 
 class _AttendanceCardState extends State<_AttendanceCard> {
-  static const List<double> heOptions = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
+  static const List<double> heOptions = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0];
   late PageController _heController;
 
   @override
@@ -743,32 +743,12 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                       children: [
                         Text(
                           widget.worker['name'],
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Colors.black87,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: _getStatusColor().withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: _getStatusColor().withValues(alpha: 0.3),
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Text(
-                            _getStatusLabel(),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _getStatusColor(),
-                              fontWeight: FontWeight.w600,
-                            ),
                           ),
                         ),
                       ],
@@ -811,11 +791,11 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(10),
                                     color: isSelectedHours
-                                        ? Colors.blue
+                                        ? Color(0xFF1C1CF0)
                                         : Colors.white,
                                     border: Border.all(
                                       color: isSelectedHours
-                                          ? Colors.blue
+                                          ? Colors.yellow
                                           : Colors.grey[300]!,
                                       width: isSelectedHours ? 1.5 : 0.5,
                                     ),

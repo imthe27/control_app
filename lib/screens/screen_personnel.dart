@@ -535,12 +535,11 @@ class _WorkerCard extends StatelessWidget {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 14,
+                                fontSize: 15,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.black87,
                               ),
                             ),
-                            const SizedBox(height: 2),
                             //Text(
                             //  worker.role.toUpperCase(),
                             //  maxLines: 1,
