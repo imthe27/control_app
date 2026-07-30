@@ -32,7 +32,8 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
 
   Future<void> _refreshProject() async {
     try {
-      final resp = await http.get(u('/projects'));
+      final resp = await http.get(u('/projects'),
+          headers: await authHeaders(json: false));
       if (!mounted || resp.statusCode != 200) return;
       final all = List<Map<String, dynamic>>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)));

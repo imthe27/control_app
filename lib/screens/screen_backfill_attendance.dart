@@ -34,7 +34,8 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
 
   Future<void> _loadProjects() async {
     try {
-      final resp = await http.get(u('/projects'));
+      final resp = await http.get(u('/projects'),
+          headers: await authHeaders(json: false));
       if (!mounted || resp.statusCode != 200) return;
       setState(() => _projects = List<Map<String, dynamic>>.from(
           jsonDecode(utf8.decode(resp.bodyBytes))));

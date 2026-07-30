@@ -49,7 +49,8 @@ class _AttendanceViewerScreenState extends State<AttendanceViewerScreen> {
 
   Future<void> _fetchProjects() async {
     try {
-      final response = await http.get(u('/projects'));
+      final response = await http.get(u('/projects'),
+          headers: await authHeaders(json: false));
       if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {

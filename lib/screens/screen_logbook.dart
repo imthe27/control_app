@@ -46,11 +46,11 @@ class _LogbookTabState extends State<LogbookTab>
     try {
       final headers = await authHeaders();
       final results = await Future.wait([
-        http.get(u('/projects/$_projectId/notes')),
+        http.get(u('/projects/$_projectId/notes'), headers: headers),
         http.post(u('/projects/$_projectId/partidas/sync-from-catalog'),
             headers: headers),
         http.get(u('/me'), headers: headers),
-        http.get(u('/projects/$_projectId/catalog-items')),
+        http.get(u('/projects/$_projectId/catalog-items'), headers: headers),
       ]);
 
       if (!mounted) return;
@@ -66,7 +66,8 @@ class _LogbookTabState extends State<LogbookTab>
         partidas = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(results[1].bodyBytes)));
       } else {
-        final pg = await http.get(u('/projects/$_projectId/partidas'));
+        final pg = await http.get(u('/projects/$_projectId/partidas'),
+            headers: await authHeaders(json: false));
         partidas = pg.statusCode == 200
             ? List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(pg.bodyBytes)))
@@ -1223,6 +1224,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
 
   Future<String?> _uploadPhoto(File file) async {
     final request = http.MultipartRequest('POST', u('/upload-photo/'));
+    request.headers.addAll(await authHeaders(json: false));
     request.files.add(await http.MultipartFile.fromPath('file', file.path));
     final response = await request.send();
     if (response.statusCode == 200) {
@@ -1244,7 +1246,8 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     List<Map<String, dynamic>> catalog = [];
     try {
       final resp =
-      await http.get(u('/projects/${widget.projectId}/catalog-items'));
+      await http.get(u('/projects/${widget.projectId}/catalog-items'),
+          headers: await authHeaders(json: false));
       if (resp.statusCode == 200) {
         catalog = List<Map<String, dynamic>>.from(
             jsonDecode(utf8.decode(resp.bodyBytes)));
@@ -1921,7 +1924,8 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
 
   Future<void> _load() async {
     try {
-      final resp = await http.get(u('/projects/${widget.projectId}/partidas'));
+      final resp = await http.get(u('/projects/${widget.projectId}/partidas'),
+          headers: await authHeaders(json: false));
       if (!mounted) return;
       setState(() {
         _partidas = resp.statusCode == 200

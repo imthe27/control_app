@@ -36,9 +36,9 @@ class _CatalogTabState extends State<CatalogTab> {
     try {
       final headers = await authHeaders();
       final results = await Future.wait([
-        http.get(u('/projects/$_projectId/catalog-items')),
+        http.get(u('/projects/$_projectId/catalog-items'), headers: headers),
         http.get(u('/me'), headers: headers),
-        http.get(u('/projects/$_projectId/partidas')),
+        http.get(u('/projects/$_projectId/partidas'), headers: headers),
       ]);
       if (!mounted) return;
       var canWrite = false;

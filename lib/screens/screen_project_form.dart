@@ -88,6 +88,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
 
   Future<String?> _uploadImage(File imageFile) async {
     final request = http.MultipartRequest('POST', u('/upload-photo/'));
+    request.headers.addAll(await authHeaders(json: false));
     request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
     final response = await request.send();
     if (response.statusCode == 200) {
@@ -98,7 +99,10 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   }
 
   Future<String?> _uploadCatalog(File pdfFile) async {
-    final request = http.MultipartRequest('POST', u('/upload-catalog'));
+    // Trailing slash matters: the route is /upload-catalog/. Without it the
+    // 307 redirect drops the Authorization header and the request 401s.
+    final request = http.MultipartRequest('POST', u('/upload-catalog/'));
+    request.headers.addAll(await authHeaders(json: false));
     request.files.add(await http.MultipartFile.fromPath('file', pdfFile.path));
     final response = await request.send();
     if (response.statusCode == 200) {
