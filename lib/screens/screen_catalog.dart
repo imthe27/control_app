@@ -232,6 +232,11 @@ class _CatalogTabState extends State<CatalogTab> {
   double _pct(double executed, double qty) =>
       qty <= 0 ? 0 : (executed / qty).clamp(0.0, 1.0);
 
+  /// Same rule as the logbook: whole quantities without the trailing .0
+  /// (0 / 133.1, not 0.0 / 133.1).
+  String _fmtQty(double d) =>
+      d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(2);
+
   /// Three-dots menu for a concepto: edit or delete.
   void _itemMenu(Map<String, dynamic> it) {
     showModalBottomSheet(
@@ -431,7 +436,7 @@ class _CatalogTabState extends State<CatalogTab> {
                     Text('${(pct * 100).toStringAsFixed(0)}%',
                         style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 13,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700)),
                   ]),
                 ));
@@ -480,9 +485,10 @@ class _CatalogTabState extends State<CatalogTab> {
                         CrossAxisAlignment.start,
                         children: [
                           Text(
-                              '$ex / $q ${it['unit'] ?? ''}  ·  ${(_pct(ex, q) * 100).toStringAsFixed(0)}%',
-                              style:
-                              const TextStyle(fontSize: 10)),
+                              '${_fmtQty(ex)} / ${_fmtQty(q)} ${it['unit'] ?? ''}  ·  ${(_pct(ex, q) * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600)),
                           const SizedBox(height: 3),
                           ClipRRect(
                             borderRadius:
