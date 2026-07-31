@@ -519,9 +519,31 @@ class _NoteCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ---------- Header: partida chip + date + delete ----------
+                // ---------- Header: folio + partida chip + date + delete ----------
                 Row(
                   children: [
+                    // Folio: per-obra note number, assigned by the server at
+                    // creation and never reused. Null only for responses from
+                    // a backend that predates phase 12.
+                    if (note['folio'] != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1C1CF0),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'NOTA ${note['folio']}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     if (partidaName != null)
                       Flexible(
                         child: Container(
@@ -984,7 +1006,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('NOTA'),
+        title: Text(note['folio'] != null ? 'NOTA ${note['folio']}' : 'NOTA'),
         titleTextStyle: const TextStyle(
             color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
         backgroundColor: const Color(0xFF1C1CF0),
