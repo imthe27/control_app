@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:control_app/api.dart';
 import 'package:control_app/screens/models/worker.dart';
 import 'package:control_app/screens/widgets/worker_card.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'screen_worker_form.dart';
 
 /// Read-only ficha of a worker: personal info, fiscal/bank data, nómina
@@ -190,14 +191,24 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
             WorkerSectionCard(title: 'INFORMACIÓN PERSONAL', children: [
               _row(Icons.badge, 'NSS', d['nss'], copyValue: d['nss']),
               _row(Icons.fingerprint, 'CURP', d['curp'], copyValue: d['curp']),
-              _row(Icons.phone, 'TELÉFONO', d['phone']),
-              _row(Icons.home, 'DIRECCIÓN', d['address']),
+              _row(Icons.phone, 'TELÉFONO', d['phone'], actions: [
+                _action(Icons.call, 'LLAMAR',
+                    () => _dial(d['phone'].toString())),
+              ]),
+              _row(Icons.home, 'DIRECCIÓN', d['address'], actions: [
+                _action(Icons.map, 'VER EN MAPA',
+                    () => _openMaps(d['address'].toString())),
+              ]),
               _row(Icons.bloodtype, 'TIPO DE SANGRE', d['blood_type']),
               _row(Icons.contact_emergency, 'CONTACTO DE EMERGENCIA',
                   d['emergency_contact_name']),
               _row(Icons.phone_in_talk, 'TEL. DE EMERGENCIA',
                   d['emergency_contact_phone'],
-                  last: true),
+                  last: true,
+                  actions: [
+                    _action(Icons.call, 'LLAMAR',
+                        () => _dial(d['emergency_contact_phone'].toString())),
+                  ]),
             ]),
             const SizedBox(height: 12),
             WorkerSectionCard(title: 'DATOS FISCALES Y BANCO', children: [
@@ -320,8 +331,18 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
     );
   }
 
+  /// Action icon sitting alongside the copy button, styled to match it.
+  Widget _action(IconData icon, String tooltip, VoidCallback onPressed) {
+    return IconButton(
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      icon: Icon(icon, size: 19, color: const Color(0xFF1C1CF0)),
+      onPressed: onPressed,
+    );
+  }
+
   Widget _row(IconData icon, String label, dynamic value,
-      {bool last = false, dynamic copyValue}) {
+      {bool last = false, dynamic copyValue, List<Widget> actions = const []}) {
     final text = (value == null || value.toString().trim().isEmpty)
         ? null
         : value.toString();
@@ -373,11 +394,56 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                     );
                   },
                 ),
+              // Only offered when there is actually a value to act on.
+              if (text != null) ...actions,
             ],
           ),
         ),
         if (!last) Divider(height: 1, color: Colors.grey[200]),
       ],
+    );
+  }
+
+  /// Launches [uri], telling the user when nothing handled it.
+  ///
+  /// A failed launch is silent by default — no exception, no visible effect —
+  /// which is indistinguishable from a dead button. The snackbar is the only
+  /// thing that makes "no app can open this" legible.
+  Future<void> _launch(Uri uri, String failureMessage) async {
+    bool ok = false;
+    try {
+      ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted || ok) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(failureMessage)),
+    );
+  }
+
+  /// Strips formatting so 'tel:' gets digits only. Keeps a leading + for
+  /// international numbers.
+  void _dial(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (digits.isEmpty) return;
+    _launch(Uri(scheme: 'tel', path: digits), 'No se pudo abrir el teléfono');
+  }
+
+  /// DIRECCIÓN is free text — accents, commas, '#'. Uri.https percent-encodes
+  /// the query itself, so this must never be built by concatenation.
+  ///
+  /// The https form is used rather than 'geo:' because it falls back to a
+  /// browser when no maps app is installed, instead of failing silently.
+  void _openMaps(String address) {
+    final query = address.trim();
+    if (query.isEmpty) return;
+    _launch(
+      Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query': query,
+      }),
+      'No se pudo abrir el mapa',
     );
   }
 

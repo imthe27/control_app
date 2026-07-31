@@ -46,5 +46,28 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+
+        <!-- url_launcher. On Android 11+ (API 30) package visibility is
+             filtered, so canLaunchUrl returns false and launchUrl silently
+             does nothing unless the intent is declared here. The failure mode
+             is a button that appears to work and doesn't, not a crash. -->
+
+        <!-- Dial a worker's phone number. ACTION_DIAL opens the dialer
+             pre-filled and needs no CALL_PHONE permission. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+
+        <!-- Open DIRECCIÓN in maps. https covers Google Maps and any browser
+             fallback; geo is declared too in case a maps app is preferred. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="geo"/>
+        </intent>
     </queries>
 </manifest>
