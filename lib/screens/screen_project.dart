@@ -8,6 +8,7 @@ import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'screen_logbook.dart';
 import 'screen_catalog.dart';
 import 'screen_record_attendance.dart';
+import 'utils/launchers.dart';
 
 /// Project detail hub: INFO | CATÁLOGO | BITÁCORA
 /// Phase 1: INFO tab functional, the other two are placeholders.
@@ -132,6 +133,7 @@ class _InfoTab extends StatelessWidget {
     final status = (project['status'] ?? '').toString();
     final isFinished = status.toLowerCase().contains('termin') ||
         status.toLowerCase().contains('finish');
+    final address = (project['address'] ?? '').toString().trim();
 
     // Refreshes the project object only (one GET /projects). The other two
     // tabs own their data: CATÁLOGO re-fetches on every visit (no keep-alive),
@@ -287,6 +289,9 @@ class _InfoTab extends StatelessWidget {
                   icon: Icons.location_on,
                   label: 'DIRECCIÓN',
                   value: project['address'],
+                  onTap: address.isEmpty
+                      ? null
+                      : () => openMaps(context, address),
                 ),
                 _InfoRow(
                   icon: Icons.engineering,
@@ -338,12 +343,14 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final dynamic value;
   final bool isLast;
+  final VoidCallback? onTap;
 
   const _InfoRow({
     required this.icon,
     required this.label,
     required this.value,
     this.isLast = false,
+    this.onTap,
   });
 
   @override
@@ -352,44 +359,51 @@ class _InfoRow extends StatelessWidget {
         ? null
         : value.toString();
 
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF1C1CF0)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text ?? 'SIN REGISTRAR',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: text != null ? FontWeight.w500 : FontWeight.normal,
+                    fontStyle: text != null ? FontStyle.normal : FontStyle.italic,
+                    color: text != null ? Colors.black87 : Colors.grey[400],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onTap != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Icon(Icons.open_in_new, size: 18, color: Colors.grey[400]),
+            ),
+        ],
+      ),
+    );
+
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 20, color: const Color(0xFF1C1CF0)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[600],
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      text ?? 'SIN REGISTRAR',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: text != null ? FontWeight.w500 : FontWeight.normal,
-                        fontStyle: text != null ? FontStyle.normal : FontStyle.italic,
-                        color: text != null ? Colors.black87 : Colors.grey[400],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        onTap != null ? InkWell(onTap: onTap, child: row) : row,
         if (!isLast) Divider(height: 1, color: Colors.grey[200]),
       ],
     );
