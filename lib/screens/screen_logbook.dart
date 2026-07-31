@@ -90,6 +90,15 @@ class _LogbookTabState extends State<LogbookTab>
                 username == widget.project['encargado_username']);
       }
 
+      // A partida deleted in the manager must not strand the feed on a
+      // filter that can never match again.
+      var filterId = _filterPartidaId;
+      if (filterId != null &&
+          filterId != -1 &&
+          !partidas.any((p) => p['id'] == filterId)) {
+        filterId = null;
+      }
+
       setState(() {
         _notes = notes;
         _partidas = partidas;
@@ -97,6 +106,7 @@ class _LogbookTabState extends State<LogbookTab>
         _canWrite = canWrite;
         _username = username;
         _isAdmin = isAdmin;
+        _filterPartidaId = filterId;
         _loading = false;
       });
     } catch (e) {
@@ -243,26 +253,71 @@ class _LogbookTabState extends State<LogbookTab>
     }
   }
 
-  Widget _filterChip(String label, int? value) {
-    final selected = _filterPartidaId == value;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF1C1CF0),
+  String get _filterLabel {
+    if (_filterPartidaId == null) return 'TODAS';
+    if (_filterPartidaId == -1) return 'SIN PARTIDA';
+    final match = _partidas.where((p) => p['id'] == _filterPartidaId);
+    if (match.isEmpty) return 'TODAS';
+    final p = match.first;
+    return p['code'] != null ? '${p['code']} · ${p['name']}' : p['name'];
+  }
+
+  void _openFilterDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('FILTRAR POR PARTIDA'),
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              _filterOption(ctx, 'TODAS', null),
+              _filterOption(ctx, 'SIN PARTIDA', -1),
+              ..._partidas.map((p) => _filterOption(
+                    ctx,
+                    p['code'] != null
+                        ? '${p['code']} · ${p['name']}'
+                        : p['name'],
+                    p['id'],
+                  )),
+            ],
           ),
         ),
-        selected: selected,
-        onSelected: (_) => setState(() => _filterPartidaId = value),
-        selectedColor: Colors.yellow,
-        backgroundColor: Colors.white.withValues(alpha: 0.15),
-        side: BorderSide.none,
-        showCheckmark: false,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CERRAR'),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _filterOption(BuildContext ctx, String label, int? value) {
+    final selected = _filterPartidaId == value;
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        color: const Color(0xFF1C1CF0),
+        size: 20,
+      ),
+      title: Text(
+        label,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
+      ),
+      onTap: () {
+        setState(() => _filterPartidaId = value);
+        Navigator.pop(ctx);
+      },
     );
   }
 
@@ -346,10 +401,27 @@ class _LogbookTabState extends State<LogbookTab>
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (_canWrite)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
+                      Row(
+                        children: [
+                          // ---------- Partida filter ----------
+                          Flexible(
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                foregroundColor: _filterPartidaId == null
+                                    ? Colors.white70
+                                    : Colors.yellow,
+                              ),
+                              onPressed: _openFilterDialog,
+                              icon: const Icon(Icons.filter_list, size: 18),
+                              label: Text(
+                                _filterLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (_canWrite)
                             TextButton.icon(
                               style: TextButton.styleFrom(
                                 foregroundColor: Colors.white70,
@@ -359,24 +431,7 @@ class _LogbookTabState extends State<LogbookTab>
                                   size: 18),
                               label: const Text('PARTIDAS'),
                             ),
-                          ],
-                        ),
-                      // ---------- Filter chips ----------
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _filterChip('TODAS', null),
-                            _filterChip('SIN PARTIDA', -1),
-                            ..._partidas.map((p) =>
-                                _filterChip(
-                                  p['code'] != null
-                                      ? '${p['code']} · ${p['name']}'
-                                      : p['name'],
-                                  p['id'],
-                                )),
-                          ],
-                        ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       if (filtered.isEmpty)
