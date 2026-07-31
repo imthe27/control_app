@@ -45,6 +45,18 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
     fetchProjects();
   }
 
+  /// Pinned first (existing behavior), then newest first. On a serial PK the
+  /// id is an exact proxy for insertion order — projects has no created_at,
+  /// and backfilling one now was considered and rejected. The full comparator
+  /// also makes the order deterministic; the old single-key pin sort left
+  /// unpinned items at the mercy of List.sort being unstable.
+  int _compareProjects(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final pin =
+        (b['isPinned'] == true ? 1 : 0) - (a['isPinned'] == true ? 1 : 0);
+    if (pin != 0) return pin;
+    return (b['id'] as int).compareTo(a['id'] as int);
+  }
+
   Future<void> fetchProjects() async {
     try {
       final response = await http.get(u('/projects'),
@@ -59,8 +71,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
             proj['isPinned'] = pinnedProjectNames.contains(proj['name']);
             return proj;
           }).toList();
-          projects.sort((a, b) =>
-          (b['isPinned'] ? 1 : 0) - (a['isPinned'] ? 1 : 0));
+          projects.sort(_compareProjects);
           isLoading = false;
         });
       } else {
@@ -349,7 +360,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
                     await togglePin(project['name'], newStatus);
                     setState(() {
                       project['isPinned'] = newStatus;
-                      projects.sort((a, b) => (b['isPinned'] ? 1 : 0) - (a['isPinned'] ? 1 : 0));
+                      projects.sort(_compareProjects);
                     });
                   },
                 );
