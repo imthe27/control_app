@@ -20,9 +20,18 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
   List<Map<String, dynamic>> selectedWorkers = [];
   List<Map<String, dynamic>> allWorkers = [];
   int get currentProjectId => widget.projectId;
-  Set<int> selectedIndexes = {};
   bool isSaving = false;
   bool isLoading = true;
+
+  /// Past days are read-only: this screen becomes an attendance viewer.
+  /// Editing history goes through REGISTRO PASADO (backfill), which warns
+  /// about cross-obra overwrites; this one does not.
+  bool get _isPastDay {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final sel = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    return sel.isBefore(today);
+  }
 
   @override
   void initState() {
@@ -170,31 +179,16 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
     if (picked != null) {
       setState(() => selectedDate = picked);
       await loadAttendanceForDate();
+      if (!mounted) return;
+      if (_isPastDay) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('DÍA ANTERIOR: SÓLO CONSULTA'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
-  }
-
-  void _applyStatusToSelected(String status) {
-    final key = _formatDate(selectedDate);
-    setState(() {
-      for (final idx in selectedIndexes) {
-        final name = selectedWorkers[idx]['name'];
-        allAttendance[key]![name] = status;
-        if (status != '1') {
-          allExtras[key]![name] = '0';
-        }
-      }
-    });
-  }
-
-  void _clearSpecialStatusForSelected() {
-    final key = _formatDate(selectedDate);
-    setState(() {
-      for (final idx in selectedIndexes) {
-        final name = selectedWorkers[idx]['name'];
-        allAttendance[key]![name] = '0';
-      }
-      selectedIndexes.clear();
-    });
   }
 
   String _formatDate(DateTime date) => "${date.day}/${date.month}/${date.year}";
@@ -425,23 +419,12 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
         backgroundColor: const Color(0xFF1C1CF0),
         elevation: 1,
         actions: [
-          if (selectedIndexes.isNotEmpty) ...[
+          if (!_isPastDay)
             IconButton(
-              tooltip: 'VACACIONES',
-              icon: const Icon(Icons.beach_access),
-              onPressed: () => _applyStatusToSelected('V'),
+              tooltip: 'AGREGAR PERSONAL',
+              icon: const Icon(Icons.person_add),
+              onPressed: _showWorkerPickDialog,
             ),
-            IconButton(
-              tooltip: 'INCAPACIDAD',
-              icon: const Icon(Icons.local_hospital),
-              onPressed: () => _applyStatusToSelected('INC'),
-            ),
-            IconButton(
-              tooltip: 'LIMPIAR',
-              icon: const Icon(Icons.refresh),
-              onPressed: _clearSpecialStatusForSelected,
-            ),
-          ],
         ],
         iconTheme: IconThemeData(
           color: Colors.white,
@@ -495,83 +478,114 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                 ),
               ),
             ),
+            // CustomScrollView rather than GridView.builder so the save
+            // control can scroll with the crew instead of floating over it.
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.7,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                itemCount: selectedWorkers.length,
-                itemBuilder: (context, index) {
-                  final worker = selectedWorkers[index];
-                  final name = worker['name'] as String;
-                  final status = allAttendance[todayKey]![name] ?? '0';
-                  final isSelected = selectedIndexes.contains(index);
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        childAspectRatio: 0.7,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final worker = selectedWorkers[index];
+                          final name = worker['name'] as String;
+                          final status = allAttendance[todayKey]![name] ?? '0';
 
-                  return _AttendanceCard(
-                    worker: worker,
-                    status: status,
-                    extraHours: allExtras[todayKey]![name] ?? '0',
-                    isSelected: isSelected,
-                    initials: _getInitials(name),
-                    onStatusChanged: (newStatus) {
-                      setState(() {
-                        allAttendance[todayKey]![name] = newStatus;
-                        if (newStatus != '1') {
-                          allExtras[todayKey]![name] = '0';
-                        }
-                      });
-                    },
-                    onExtraHoursChanged: (hours) {
-                      setState(() {
-                        allExtras[todayKey]![name] = hours;
-                      });
-                    },
-                    onLongPress: () {
-                      setState(() {
-                        isSelected
-                            ? selectedIndexes.remove(index)
-                            : selectedIndexes.add(index);
-                      });
-                    },
-                  );
-                },
+                          return _AttendanceCard(
+                            worker: worker,
+                            status: status,
+                            extraHours: allExtras[todayKey]![name] ?? '0',
+                            initials: _getInitials(name),
+                            readOnly: _isPastDay,
+                            onStatusChanged: (newStatus) {
+                              setState(() {
+                                allAttendance[todayKey]![name] = newStatus;
+                                if (newStatus != '1') {
+                                  allExtras[todayKey]![name] = '0';
+                                }
+                              });
+                            },
+                            onExtraHoursChanged: (hours) {
+                              setState(() {
+                                allExtras[todayKey]![name] = hours;
+                              });
+                            },
+                          );
+                        },
+                        childCount: selectedWorkers.length,
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(child: _buildListFooter()),
+                ],
               ),
             ),
           ],
         ),
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'add_worker',
-            onPressed: _showWorkerPickDialog,
-            backgroundColor: const Color(0xFF1C1CF0),
-            icon: const Icon(Icons.person_add, color: Colors.white),
-            label: const Text('AGREGAR', style: const TextStyle(color: Colors.white)),
+    );
+  }
+
+  /// Sits at the end of the scrolling list, below the crew — the user scrolls
+  /// past everyone to reach it, which is the point: you see who you are about
+  /// to save for. On a past day it becomes a plain notice instead, because
+  /// letting someone edit and only then discover they cannot save is worse
+  /// than not letting them edit.
+  Widget _buildListFooter() {
+    if (_isPastDay) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(16, 8, 16, 32),
+        child: Text(
+          'PARA DÍAS ANTERIORES USA REGISTRO PASADO',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
           ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: 'save',
-            onPressed: isSaving ? null : _saveAttendance,
-            backgroundColor: const Color(0xFF1C1CF0),
-            icon: isSaving
-                ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.yellow),
-              ),
-            )
-                : const Icon(Icons.save, color: Colors.white),
-            label: Text(isSaving ? 'GUARDANDO...' : 'GUARDAR', style: const TextStyle(color: Colors.white)),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      child: SizedBox(
+        height: 52,
+        child: ElevatedButton.icon(
+          onPressed: isSaving ? null : _saveAttendance,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF1C1CF0),
+            disabledBackgroundColor: Colors.white70,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
-        ],
+          icon: isSaving
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C1CF0)),
+                  ),
+                )
+              : const Icon(Icons.save),
+          label: Text(
+            isSaving ? 'GUARDANDO...' : 'GUARDAR',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
       ),
     );
   }
@@ -581,21 +595,22 @@ class _AttendanceCard extends StatefulWidget {
   final Map<String, dynamic> worker;
   final String status;
   final String extraHours;
-  final bool isSelected;
   final String initials;
+
+  /// Past day: the card still renders its status, but nothing responds.
+  final bool readOnly;
+
   final Function(String) onStatusChanged;
   final Function(String) onExtraHoursChanged;
-  final VoidCallback onLongPress;
 
   const _AttendanceCard({
     required this.worker,
     required this.status,
     required this.extraHours,
-    required this.isSelected,
     required this.initials,
+    required this.readOnly,
     required this.onStatusChanged,
     required this.onExtraHoursChanged,
-    required this.onLongPress,
   });
 
   @override
@@ -623,18 +638,20 @@ class _AttendanceCardState extends State<_AttendanceCard> {
     super.dispose();
   }
 
-  Color _getStatusColor() {
-    switch (widget.status) {
-      case '1':
-        return Colors.green;
-      case 'V':
-        return Colors.orange;
-      case 'INC':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
+  /// Statuses this screen renders read-only. Nothing here can SET them any
+  /// more — the long-press selection that did was removed — but they still
+  /// arrive from the backfill screen, which writes 'I' for incapacidad while
+  /// this screen historically wrote 'INC'. The backend validates neither, so
+  /// both spellings can exist; match both or a backfilled row shows up as a
+  /// plain absence.
+  static const _specialStatuses = {'V', 'INC', 'I'};
+
+  bool get _isSpecial => _specialStatuses.contains(widget.status);
+
+  /// One ink colour for both watermarks. V and INC/I are told apart by the
+  /// icon and the label, not by hue — a coloured icon on a greyed-out card
+  /// reads as active, which is the opposite of what these rows are.
+  static const _watermarkInk = Color(0xFF424242);
 
   String _getStatusLabel() {
     switch (widget.status) {
@@ -643,11 +660,15 @@ class _AttendanceCardState extends State<_AttendanceCard> {
       case 'V':
         return 'VACACIONES';
       case 'INC':
-        return 'INCAPACIDAD';
+      case 'I':
+        return 'INCAPACITADO';
       default:
         return 'FALTA';
     }
   }
+
+  IconData _getStatusIcon() =>
+      widget.status == 'V' ? Icons.beach_access : Icons.local_hospital;
 
   String _formatHours(double hours) {
     return hours == hours.toInt() ? '${hours.toInt()}' : '$hours';
@@ -655,28 +676,25 @@ class _AttendanceCardState extends State<_AttendanceCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isSpecial = widget.status == 'V' || widget.status == 'INC';
+    final isSpecial = _isSpecial;
     final hoursValue = double.tryParse(widget.extraHours) ?? 0.0;
     final isPresent = widget.status == '1';
+    // A past day disables interaction without changing how the card looks —
+    // the screen doubles as an attendance viewer. Only V/INC/I grey out.
+    final locked = widget.readOnly || isSpecial;
 
     return GestureDetector(
-      onTap: isSpecial ? null : () => widget.onStatusChanged(isPresent ? '0' : '1'),
-      onLongPress: widget.onLongPress,
+      onTap: locked ? null : () => widget.onStatusChanged(isPresent ? '0' : '1'),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: widget.isSelected ? Colors.blue[300]! : Colors.white24,
-            width: widget.isSelected ? 2 : 0.5,
-          ),
-          color: widget.isSelected
-              ? Colors.blue[50]
+          border: Border.all(color: Colors.white24, width: 0.5),
+          color: isSpecial
+              ? Colors.grey[400]!.withValues(alpha: 0.95)
               : Colors.white.withValues(alpha: 0.95),
           boxShadow: [
             BoxShadow(
-              color: widget.isSelected
-                  ? Colors.blue.withValues(alpha: 0.3)
-                  : Colors.black.withValues(alpha: 0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -764,7 +782,7 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                       color: isSpecial ? Colors.grey[100] : Colors.blue[50],
                     ),
                     child: IgnorePointer(
-                      ignoring: isSpecial,
+                      ignoring: locked,
                       child: PageView.builder(
                         controller: _heController,
                         itemCount: heOptions.length,
@@ -858,24 +876,38 @@ class _AttendanceCardState extends State<_AttendanceCard> {
                 ),
               ),
             ),
-            if (widget.isSelected)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  width: 26,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.blue,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.blue.withValues(alpha: 0.3),
-                        blurRadius: 6,
-                      ),
-                    ],
+            // V / INC / I watermark. Nothing in the app sets these any more,
+            // but the backfill screen can, so the card still has to show them.
+            if (isSpecial)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: Colors.grey[400]!.withValues(alpha: 0.88),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _getStatusIcon(),
+                          size: 56,
+                          color: _watermarkInk.withValues(alpha: 0.70),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _getStatusLabel(),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                            color: _watermarkInk,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Icon(Icons.check, color: Colors.white, size: 16),
                 ),
               ),
           ],
