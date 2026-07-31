@@ -7,6 +7,7 @@ import 'package:control_app/api.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'screen_logbook.dart';
 import 'screen_catalog.dart';
+import 'screen_project_form.dart';
 import 'screen_record_attendance.dart';
 import 'utils/launchers.dart';
 
@@ -23,12 +24,30 @@ class ProjectDetailScreen extends StatefulWidget {
 
 class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
   late Map<String, dynamic> project;
+  bool _canWrite = false;
 
   @override
   void initState() {
     super.initState();
     project = widget.project;
     _refreshProject();
+    _loadMe();
+  }
+
+  /// Admin or the obra's encargado — gates the add-PDF affordance, same
+  /// rule the catalog and logbook tabs already apply. Fetched once: the
+  /// role doesn't change mid-session.
+  Future<void> _loadMe() async {
+    try {
+      final resp =
+          await http.get(u('/me'), headers: await authHeaders(json: false));
+      if (!mounted || resp.statusCode != 200) return;
+      final me = jsonDecode(resp.body) as Map<String, dynamic>;
+      setState(() {
+        _canWrite = me['is_admin'] == true ||
+            (me['username'] ?? '') == project['encargado_username'];
+      });
+    } catch (_) {}
   }
 
   Future<void> _refreshProject() async {
@@ -87,6 +106,7 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
               _InfoTab(
                 project: project,
                 onRefresh: _refreshProject,
+                canWrite: _canWrite,
               ),
               CatalogTab(project: project),
               LogbookTab(project: project),
@@ -104,10 +124,12 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
 class _InfoTab extends StatelessWidget {
   final Map<String, dynamic> project;
   final Future<void> Function() onRefresh;
+  final bool canWrite;
 
   const _InfoTab({
     required this.project,
     required this.onRefresh,
+    required this.canWrite,
   });
 
   String _fmtDate(String? iso) {
@@ -133,6 +155,7 @@ class _InfoTab extends StatelessWidget {
     final status = (project['status'] ?? '').toString();
     final isFinished = status.toLowerCase().contains('termin') ||
         status.toLowerCase().contains('finish');
+    final pdfUrl = resolvePhotoUrl(project['catalog_pdf']);
     final address = (project['address'] ?? '').toString().trim();
 
     // Refreshes the project object only (one GET /projects). The other two
@@ -303,6 +326,88 @@ class _InfoTab extends StatelessWidget {
             ),
           ),
         ),
+
+        // ---------- Catálogo PDF ----------
+        // The card itself does no I/O; download/render failures surface in
+        // CatalogPdfScreen's existing error + REINTENTAR state. Read-only
+        // users with no PDF see nothing — same philosophy as the monto row.
+        if (pdfUrl != null) ...[
+          const SizedBox(height: 12),
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CatalogPdfScreen(
+                    url: pdfUrl,
+                    title: project['name'] ?? 'CATÁLOGO',
+                  ),
+                ),
+              ),
+              leading: const Icon(Icons.picture_as_pdf,
+                  color: Color(0xFF1C1CF0), size: 28),
+              title: Text(
+                'CATÁLOGO PDF',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[600],
+                  letterSpacing: 0.5,
+                ),
+              ),
+              subtitle: const Text(
+                'VER DOCUMENTO',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+            ),
+          ),
+        ] else if (canWrite) ...[
+          const SizedBox(height: 12),
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              // Adding goes through the existing edit form — the one place
+              // that uploads to /upload-catalog/ and writes the project.
+              onTap: () async {
+                final saved = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProjectFormScreen(projectToEdit: project),
+                  ),
+                );
+                if (saved == true) onRefresh();
+              },
+              leading: Icon(Icons.picture_as_pdf_outlined,
+                  color: Colors.grey[500], size: 28),
+              title: Text(
+                'CATÁLOGO PDF',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[600],
+                  letterSpacing: 0.5,
+                ),
+              ),
+              subtitle: Text(
+                'SIN PDF — AGREGAR',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.grey[500]),
+              ),
+              trailing: const Icon(Icons.add_circle_outline,
+                  color: Color(0xFF1C1CF0)),
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
 
         // ---------- Quick action: attendance ----------
