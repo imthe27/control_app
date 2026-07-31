@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:control_app/api.dart';
+import 'package:control_app/screens/models/worker_roles.dart';
 import 'package:control_app/screens/widgets/worker_card.dart';
 
 /// Full-screen form to register a new worker: photo, basic data
@@ -52,10 +53,15 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
   int? _projectId;
   bool _loadingProjects = true;
 
+  // Role. _role holds the value that gets saved; the dropdown drives it.
+  List<String> _roles = [];
+  bool _loadingRoles = true;
+
   @override
   void initState() {
     super.initState();
     _loadProjects();
+    _loadRoles();
     _loadMe();
     final w = widget.worker;
     if (w != null) {
@@ -127,6 +133,79 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
     } catch (_) {
       if (mounted) setState(() => _loadingProjects = false);
     }
+  }
+
+  Future<void> _loadRoles() async {
+    try {
+      final roles = await fetchWorkerRoles();
+      if (!mounted) return;
+      setState(() {
+        _roles = roles;
+        final current = normalizeRole(_role.text);
+        if (current.isEmpty) {
+          // Create mode, or a worker saved before phase 11.
+          _role.text = kUnassignedRole;
+        } else if (!_roles.contains(current)) {
+          // DropdownButton throws if its value is not among its items, so a
+          // stored role the endpoint does not know about has to be injected
+          // rather than left to blow up the form.
+          _roles = [..._roles, current]..sort();
+          _role.text = current;
+        } else {
+          _role.text = current;
+        }
+        _loadingRoles = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingRoles = false);
+    }
+  }
+
+  /// Free-text entry for a role that does not exist yet.
+  ///
+  /// GET /worker-roles is SELECT DISTINCT, so a new role only exists
+  /// server-side once a worker carrying it has been saved. Until then it is
+  /// added to the local list optimistically so the dropdown can show it.
+  Future<void> _addRole() async {
+    final controller = TextEditingController();
+    final typed = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('NUEVO PUESTO'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'PUESTO',
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCELAR'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('AGREGAR'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (typed == null) return;
+
+    // Normalize BEFORE comparing, so 'oficial ' selects the existing OFICIAL
+    // instead of creating a near-duplicate.
+    final role = normalizeRole(typed);
+    if (role.isEmpty || !mounted) return;
+    setState(() {
+      if (!_roles.contains(role)) _roles = [..._roles, role]..sort();
+      _role.text = role;
+    });
   }
 
   @override
@@ -274,7 +353,10 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
       final basicBody = jsonEncode({
         'name': name,
         'project_id': _projectId,
-        'role': _role.text.trim(),
+        // Belt and braces: the dropdown and _addRole both normalize already,
+        // but this is the last point before the value reaches the DB and
+        // becomes a new SELECT DISTINCT bucket forever.
+        'role': normalizeRole(_role.text),
         'photo_url': photoFilename,
       });
 
@@ -445,7 +527,54 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             // ---------- Basic data ----------
             WorkerSectionCard(title: 'DATOS GENERALES', children: [
               _field(_name, 'NOMBRE COMPLETO *', caps: true),
-              _field(_role, 'PUESTO'),
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _loadingRoles
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 10),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'PUESTO',
+                                labelStyle: TextStyle(fontSize: 14),
+                                isDense: true,
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _roles.contains(_role.text)
+                                      ? _role.text
+                                      : null,
+                                  isExpanded: true,
+                                  hint: const Text(kUnassignedRole),
+                                  items: _roles
+                                      .map((r) => DropdownMenuItem<String>(
+                                            value: r,
+                                            child: Text(
+                                              r,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) => setState(
+                                      () => _role.text = v ?? kUnassignedRole),
+                                ),
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'AGREGAR PUESTO',
+                            icon: const Icon(Icons.add_circle_outline,
+                                color: Color(0xFF1C1CF0)),
+                            onPressed: _saving ? null : _addRole,
+                          ),
+                        ],
+                      ),
+              ),
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: _loadingProjects

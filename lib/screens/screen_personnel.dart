@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'models/worker.dart';
+import 'models/worker_roles.dart';
 import 'package:control_app/api.dart';
 import 'screen_worker_form.dart';
 
@@ -80,13 +81,9 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> _loadRoles() async {
     try {
-      final resp = await http.get(
-        u('/worker-roles'),
-        headers: await authHeaders(json: false),
-      );
-      if (!mounted || resp.statusCode != 200) return;
-      final List<dynamic> data = jsonDecode(utf8.decode(resp.bodyBytes));
-      setState(() => _roles = data.map((e) => e.toString()).toList());
+      final roles = await fetchWorkerRoles();
+      if (!mounted) return;
+      setState(() => _roles = roles);
     } catch (_) {
       // Filter row just stays collapsed; the list itself is unaffected.
     }
