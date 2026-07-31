@@ -83,7 +83,10 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
           ),
           child: TabBarView(
             children: [
-              _InfoTab(project: project),
+              _InfoTab(
+                project: project,
+                onRefresh: _refreshProject,
+              ),
               CatalogTab(project: project),
               LogbookTab(project: project),
             ],
@@ -99,8 +102,12 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
 // ============================================================
 class _InfoTab extends StatelessWidget {
   final Map<String, dynamic> project;
+  final Future<void> Function() onRefresh;
 
-  const _InfoTab({required this.project});
+  const _InfoTab({
+    required this.project,
+    required this.onRefresh,
+  });
 
   String _fmtDate(String? iso) {
     if (iso == null || iso.isEmpty) return '';
@@ -126,7 +133,13 @@ class _InfoTab extends StatelessWidget {
     final isFinished = status.toLowerCase().contains('termin') ||
         status.toLowerCase().contains('finish');
 
-    return ListView(
+    // Refreshes the project object only (one GET /projects). The other two
+    // tabs own their data: CATÁLOGO re-fetches on every visit (no keep-alive),
+    // BITÁCORA keeps state deliberately and has its own pull-to-refresh.
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       children: [
         // ---------- Photo header ----------
@@ -310,6 +323,7 @@ class _InfoTab extends StatelessWidget {
         ),
         const SizedBox(height: 16),
       ],
+      ),
     );
   }
 }
