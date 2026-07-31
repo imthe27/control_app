@@ -188,8 +188,8 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
             // This card was the only untitled one; the shared widget gives it
             // a heading to match every other section.
             WorkerSectionCard(title: 'INFORMACIÓN PERSONAL', children: [
-              _row(Icons.badge, 'NSS', d['nss']),
-              _row(Icons.fingerprint, 'CURP', d['curp']),
+              _row(Icons.badge, 'NSS', d['nss'], copyValue: d['nss']),
+              _row(Icons.fingerprint, 'CURP', d['curp'], copyValue: d['curp']),
               _row(Icons.phone, 'TELÉFONO', d['phone']),
               _row(Icons.home, 'DIRECCIÓN', d['address']),
               _row(Icons.bloodtype, 'TIPO DE SANGRE', d['blood_type']),
@@ -201,7 +201,7 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
             ]),
             const SizedBox(height: 12),
             WorkerSectionCard(title: 'DATOS FISCALES Y BANCO', children: [
-              _row(Icons.receipt_long, 'RFC', d['rfc']),
+              _row(Icons.receipt_long, 'RFC', d['rfc'], copyValue: d['rfc']),
               _row(Icons.credit_card, 'NÚMERO DE TARJETA',
                   _maskCard(d['card_number']),
                   copyValue: d['card_number']),
