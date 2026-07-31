@@ -20,19 +20,76 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   bool _isAdmin = false;
   String searchQuery = '';
 
+  /// Needed so QUITAR FILTROS can clear the visible text, not just the state.
+  final TextEditingController _searchController = TextEditingController();
+
   /// Selected worker IDs — not list indexes, which shift when the search
   /// filter is active and would target the wrong worker.
+  ///
+  /// Selection deliberately SURVIVES both filters: a worker can be selected
+  /// and then filtered out of view. The delete confirmation lists every
+  /// selected name for that reason, so nothing is ever deleted unseen.
   Set<int> selectedIds = {};
 
-  //final List<String> _roles = ['Electricista', 'Albañil', 'Plomero', 'Herrero'];
-  //String roleFilter = 'TODOS';  to be defined roles
-  //String _selectedRole = 'Electricista';
+  /// Roles come from GET /worker-roles, not a hardcoded list. SIN ASIGNAR is
+  /// a real stored role (17 of 37 workers), so it is an ordinary chip.
+  static const String _allRoles = 'TODOS';
+  List<String> _roles = [];
+  String roleFilter = _allRoles;
 
   @override
   void initState() {
     super.initState();
     loadWorkers();
     _loadMe();
+    _loadRoles();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// Sort key for Spanish names.
+  ///
+  /// Dart's String.compareTo is code-unit based, so 'Á' (U+00C1) sorts after
+  /// 'Z' (U+005A) and ÁLVAREZ would land below ZAMORA. Accents are folded to
+  /// the base letter, which is correct: in Spanish an accent never changes a
+  /// word's alphabetical position.
+  ///
+  /// Ñ is NOT folded. The RAE treats it as its own letter between N and O.
+  /// There is no code unit between 'N' and 'O', so it becomes 'N' plus a
+  /// sentinel that outranks every letter: ÑANDU -> 'N￿ANDU', which sorts
+  /// after NANDU and still before OCAMPO.
+  static String _sortKey(String name) {
+    const accented = 'ÁÀÄÂÃÅÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÇ';
+    const plain = 'AAAAAAEEEEIIIIOOOOOUUUUC';
+    final buf = StringBuffer();
+    for (final rune in name.toUpperCase().runes) {
+      final ch = String.fromCharCode(rune);
+      if (ch == 'Ñ') {
+        buf.write('N￿');
+        continue;
+      }
+      final i = accented.indexOf(ch);
+      buf.write(i >= 0 ? plain[i] : ch);
+    }
+    return buf.toString();
+  }
+
+  Future<void> _loadRoles() async {
+    try {
+      final resp = await http.get(
+        u('/worker-roles'),
+        headers: await authHeaders(json: false),
+      );
+      if (!mounted || resp.statusCode != 200) return;
+      final List<dynamic> data = jsonDecode(utf8.decode(resp.bodyBytes));
+      setState(() => _roles = data.map((e) => e.toString()).toList());
+    } catch (_) {
+      // Filter row just stays collapsed; the list itself is unaffected.
+    }
   }
 
   Future<void> loadWorkers() async {
@@ -110,17 +167,47 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   void _confirmDeleteSelected() {
     String password = '';
+
+    // Selection survives the search and role filters, so some of these may be
+    // off-screen right now. Naming them is the safeguard: a count alone would
+    // let someone delete a worker they cannot see.
+    final selectedNames =
+        workers.where((w) => selectedIds.contains(w.id)).map((w) => w.name).toList()
+          ..sort((a, b) => _sortKey(a).compareTo(_sortKey(b)));
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('CONFIRMAR ELIMINAR TRABAJADORES'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'VAS A ELIMINAR ${selectedIds.length} TRABAJADOR(ES). '
-              'INGRESA LA CONTRASEÑA PARA CONFIRMAR:',
+            Text('VAS A ELIMINAR ${selectedIds.length} TRABAJADOR(ES):'),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 160),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final name in selectedNames)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                          '• $name',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
+            const SizedBox(height: 12),
+            const Text('INGRESA LA CONTRASEÑA PARA CONFIRMAR:'),
             TextField(
               obscureText: true,
               onChanged: (value) => password = value,
@@ -198,13 +285,19 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       );
     }
 
-    final filteredWorkers = workers.where((w) {
-      final matchesName = w.name.toUpperCase().contains(
-        searchQuery.toUpperCase(),
-      );
-      //      final matchesRole = roleFilter == 'Todos' || w.role == roleFilter;
-      return matchesName; // && matchesRole;
-    }).toList();
+    // Both predicates, then sort. The two filters are commutative; the sort
+    // runs last so it orders whatever survived.
+    final filteredWorkers =
+        workers.where((w) {
+          final matchesName =
+              w.name.toUpperCase().contains(searchQuery.toUpperCase());
+          final matchesRole =
+              roleFilter == _allRoles || w.role.trim() == roleFilter;
+          return matchesName && matchesRole;
+        }).toList()
+          ..sort((a, b) => _sortKey(a.name).compareTo(_sortKey(b.name)));
+
+    final hasActiveFilter = roleFilter != _allRoles || searchQuery.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -266,6 +359,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                 child: Column(
                   children: [
                     TextField(
+                      controller: _searchController,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'BUSCAR',
@@ -284,17 +378,19 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                       ),
                       onChanged: (val) => setState(() => searchQuery = val),
                     ),
-                    //const SizedBox(height: 12),
-                    //SizedBox(
-                    //  height: 40,
-                    //  child: ListView(
-                    //    scrollDirection: Axis.horizontal,
-                    //    children: [
-                    //      _filterChip('Todos', 'Todos'),
-                    //      ..._roles.map((role) => _filterChip(role, role)),
-                    //    ],
-                    //  ),
-                    //),
+                    if (_roles.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 40,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            _filterChip(_allRoles),
+                            ..._roles.map(_filterChip),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -304,14 +400,36 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                     // (e.g. after a failed load).
                     ? ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
-                        children: const [
-                          SizedBox(height: 120),
+                        children: [
+                          const SizedBox(height: 120),
                           Center(
                             child: Text(
-                              'NO HAY TRABAJADORES',
-                              style: TextStyle(color: Colors.white70),
+                              // "No workers at all" and "no match for these
+                              // filters" are different problems; saying the
+                              // first when a filter is active reads as data
+                              // loss.
+                              hasActiveFilter
+                                  ? 'SIN RESULTADOS'
+                                  : 'NO HAY TRABAJADORES',
+                              style: const TextStyle(color: Colors.white70),
                             ),
                           ),
+                          if (hasActiveFilter) ...[
+                            const SizedBox(height: 12),
+                            Center(
+                              child: TextButton(
+                                onPressed: () => setState(() {
+                                  roleFilter = _allRoles;
+                                  searchQuery = '';
+                                  _searchController.clear();
+                                }),
+                                child: const Text(
+                                  'QUITAR FILTROS',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       )
                     : GridView.builder(
@@ -334,7 +452,10 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                             worker: worker,
                             isSelected: isSelected,
                             onTap: () {
-                              if (selectedIds.isNotEmpty) {
+                              // Selection only exists to feed the bulk
+                              // delete, which is admin-only server-side.
+                              // UX gate only — the server is the boundary.
+                              if (_isAdmin && selectedIds.isNotEmpty) {
                                 setState(() {
                                   isSelected
                                       ? selectedIds.remove(worker.id)
@@ -350,13 +471,15 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                                 );
                               }
                             },
-                            onLongPress: () {
-                              setState(() {
-                                isSelected
-                                    ? selectedIds.remove(worker.id)
-                                    : selectedIds.add(worker.id);
-                              });
-                            },
+                            onLongPress: !_isAdmin
+                                ? null
+                                : () {
+                                    setState(() {
+                                      isSelected
+                                          ? selectedIds.remove(worker.id)
+                                          : selectedIds.add(worker.id);
+                                    });
+                                  },
                             initials: _getInitials(worker.name),
                           );
                         },
@@ -374,27 +497,33 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
     );
   }
 
-  //  Widget _filterChip(String label, String value) {
-  //    final isSelected = roleFilter == value;
-  //    return Padding(
-  //      padding: const EdgeInsets.only(right: 8),
-  //      child: FilterChip(
-  //        label: Text(
-  //          label,
-  //          style: TextStyle(
-  //            color: isSelected ? Colors.white : Colors.grey[700],
-  //            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-  //          ),
-  //        ),
-  //        selected: isSelected,
-  //        onSelected: (selected) {
-  //          setState(() => roleFilter = selected ? value : 'Todos');
-  //        },
-  //        backgroundColor: Colors.white54,
-  //        selectedColor: const Color(0xFF1C1CF0),
-  //      ),
-  //    );
-  //  }
+  /// One chip per role, plus TODOS. Label and value are the same string —
+  /// the earlier commented-out version took them separately and initialised
+  /// roleFilter to 'TODOS' while comparing against 'Todos', so nothing ever
+  /// matched. A single sentinel avoids that whole class of bug.
+  Widget _filterChip(String value) {
+    final isSelected = roleFilter == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(
+          value,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey[800],
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        selected: isSelected,
+        showCheckmark: false,
+        // Deselecting a chip falls back to TODOS rather than an empty filter.
+        onSelected: (selected) =>
+            setState(() => roleFilter = selected ? value : _allRoles),
+        backgroundColor: Colors.white70,
+        selectedColor: const Color(0xFF1C1CF0),
+        side: const BorderSide(color: Colors.white24),
+      ),
+    );
+  }
 
   //  void _showWorkerDetails(Worker worker) {
   //    showDialog(
@@ -438,7 +567,11 @@ class _WorkerCard extends StatelessWidget {
   final Worker worker;
   final bool isSelected;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+
+  /// Null for non-admins: selection feeds the admin-only bulk delete, so
+  /// there is nothing for them to select. GestureDetector simply ignores
+  /// the gesture when this is null.
+  final VoidCallback? onLongPress;
   final String initials;
 
   const _WorkerCard({
