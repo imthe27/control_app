@@ -2,10 +2,19 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/api.dart';
+import 'package:control_app/screens/widgets/attendance_card.dart';
 
 /// Admin-only backfill: pick an obra + a PAST date, then mark a crew's
 /// attendance for that day. Each worker's record carries this obra, decoupled
 /// from their current assignment, so filling history never triggers transfers.
+///
+/// Shares the daily screen's card design but NOT its past-day rules. The daily
+/// screen is read-only for past days and points people here; writing past days
+/// is this screen's entire purpose.
+///
+/// The roster is also its own: GET /attendance/backfill-roster returns the crew
+/// AS OF that date, so a worker who has since been transferred is not silently
+/// recorded against the obra they sit on today.
 class BackfillAttendanceScreen extends StatefulWidget {
   const BackfillAttendanceScreen({super.key});
 
@@ -19,12 +28,20 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
   int? _projectId;
   DateTime? _date;
 
-  // worker_id -> row {name, status, extra_hours, conflict_project_name}
+  // worker_id -> row {name, status, extra_hours, conflict}
   final Map<int, Map<String, dynamic>> _rows = {};
   bool _loadingRoster = false;
   bool _saving = false;
 
-  static const _statuses = ['1', '0.5', '0', 'F', 'V', 'I']; // presente/medio/falta/festivo/vacaciones/incap.
+  /// presente / medio día / falta / festivo.
+  ///
+  /// V (vacaciones) and I (incapacidad) are deliberately absent: nothing in the
+  /// app sets them any more. Rows that already carry one still render, greyed
+  /// out and inert, the same as on the daily screen.
+  static const _statuses = ['1', '0.5', '0', 'F'];
+
+  /// Statuses that can carry extra hours.
+  static const _hourlyStatuses = {'1', '0.5'};
 
   @override
   void initState() {
@@ -261,7 +278,10 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
         'project_id': _projectId,
         'date': _dateStr,
         'status': e.value['status'],
-        'extra_hours': (e.value['extra_hours'] ?? 0),
+        // The hours strip reports strings ('2.0'); the roster returns
+        // numbers. Normalise so the endpoint always receives a number.
+        'extra_hours':
+        double.tryParse((e.value['extra_hours'] ?? 0).toString()) ?? 0.0,
       })
           .toList();
       final resp = await http.post(
@@ -287,6 +307,155 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
     }
   }
 
+  /// One worker, in the daily screen's card design. The roster carries no
+  /// photo, so these always show initials.
+  Widget _buildCard(int workerId, Map<String, dynamic> row) {
+    final name = (row['name'] ?? '').toString();
+    final status = row['status']?.toString();
+    final special = isSpecialAttendanceStatus(status);
+    final hours = (row['extra_hours'] ?? 0).toString();
+    final conflict = row['conflict'];
+
+    return Container(
+      // Keyed by worker so the hours strip's scroll position follows its own
+      // worker when the roster changes, instead of being matched by position.
+      key: ValueKey(workerId),
+      decoration: attendanceCardDecoration(special),
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(
+                flex: 2,
+                child: AttendancePhotoHeader(
+                  photoUrl: null,
+                  initials: attendanceInitials(name),
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: AttendanceNameBlock(name: name),
+              ),
+              Expanded(
+                flex: 1,
+                child: _StatusSegments(
+                  value: status,
+                  options: _statuses,
+                  enabled: !special,
+                  onChanged: (v) => setState(() {
+                    row['status'] = v;
+                    if (!_hourlyStatuses.contains(v)) row['extra_hours'] = 0;
+                  }),
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: AttendanceHoursStrip(
+                  value: hours,
+                  enabled: !special && _hourlyStatuses.contains(status),
+                  isSpecial: special,
+                  onChanged: (h) => setState(() => row['extra_hours'] = h),
+                ),
+              ),
+            ],
+          ),
+          Positioned(
+            top: 8,
+            left: 8,
+            child: AttendancePresentBadge(isPresent: status == '1'),
+          ),
+          if (conflict != null)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Tooltip(
+                message: 'Ya registrado en $conflict',
+                child: Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.orange[800],
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: const Icon(Icons.warning_amber,
+                      size: 16, color: Colors.white),
+                ),
+              ),
+            ),
+          if (special) AttendanceStatusWatermark(status: status!),
+        ],
+      ),
+    );
+  }
+
+  /// Sits at the end of the scrolling list, below the crew — the user scrolls
+  /// past everyone to reach it, which is the point: you see who you are about
+  /// to save for.
+  Widget _buildSaveFooter() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      child: SizedBox(
+        height: 52,
+        child: ElevatedButton.icon(
+          onPressed: _saving ? null : _save,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: kAttendanceBlue,
+            disabledBackgroundColor: Colors.white70,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          icon: _saving
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(kAttendanceBlue),
+                  ),
+                )
+              : const Icon(Icons.save),
+          label: Text(
+            _saving ? 'GUARDANDO...' : 'GUARDAR',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoster() {
+    final entries = _rows.entries.toList();
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              // Taller than the daily card: this one carries a status row the
+              // daily screen does not have.
+              childAspectRatio: 0.56,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final e = entries[index];
+                return _buildCard(e.key, e.value);
+              },
+              childCount: entries.length,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(child: _buildSaveFooter()),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ready = _projectId != null && _date != null;
@@ -296,7 +465,8 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
         title: const Text('REGISTRO PASADO'),
         titleTextStyle: const TextStyle(
             color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-        backgroundColor: const Color(0xFF1C1CF0),
+        backgroundColor: kAttendanceBlue,
+        elevation: 1,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           if (ready && _rows.isNotEmpty)
@@ -307,173 +477,186 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          // ---------- Obra + date pickers ----------
-          Container(
-            color: const Color(0xFF1C1CF0),
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [kAttendanceBlue, Color(0xFF0000CD)],
+          ),
+        ),
+        child: Column(
+          children: [
+            // ---------- Obra + date pickers ----------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _projectId,
+                          isExpanded: true,
+                          hint: const Text('OBRA'),
+                          items: _projects
+                              .map((p) => DropdownMenuItem<int>(
+                            value: p['id'],
+                            child: Text((p['name'] ?? '').toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                          ))
+                              .toList(),
+                          onChanged: (v) {
+                            setState(() => _projectId = v);
+                            if (_date != null) _loadRoster();
+                          },
+                        ),
+                      ),
                     ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<int>(
-                        value: _projectId,
-                        isExpanded: true,
-                        hint: const Text('OBRA'),
-                        items: _projects
-                            .map((p) => DropdownMenuItem<int>(
-                          value: p['id'],
-                          child: Text((p['name'] ?? '').toString(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                        ))
-                            .toList(),
-                        onChanged: (v) {
-                          setState(() => _projectId = v);
-                          if (_date != null) _loadRoster();
-                        },
+                  ),
+                  const SizedBox(width: 10),
+                  InkWell(
+                    onTap: _pickDate,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.calendar_today,
+                            size: 16, color: kAttendanceBlue),
+                        const SizedBox(width: 6),
+                        Text(_dateLabel,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: kAttendanceBlue)),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ---------- Roster ----------
+            Expanded(
+              child: !ready
+                  ? const Center(
+                      child: Text('Elige una obra y una fecha',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 16)))
+                  : _loadingRoster
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.yellow)))
+                      : _rows.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.people_outline,
+                                      size: 64, color: Colors.white70),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                      'NADIE EN ESTA OBRA PARA ESA FECHA',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 16)),
+                                  const SizedBox(height: 16),
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: const BorderSide(
+                                          color: Colors.white70),
+                                    ),
+                                    onPressed: _addWorker,
+                                    icon: const Icon(Icons.person_add),
+                                    label: const Text('AGREGAR TRABAJADOR'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _buildRoster(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact status picker sized for a grid card.
+///
+/// The daily screen toggles between two states on tap; backfill needs four,
+/// plus "not marked at all" — no segment selected. That null is what keeps an
+/// untouched worker out of the save, so tapping the selected segment clears it
+/// rather than leaving the row stuck on a value nobody chose.
+class _StatusSegments extends StatelessWidget {
+  final String? value;
+  final List<String> options;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+
+  const _StatusSegments({
+    required this.value,
+    required this.options,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: Row(
+        children: options.map((opt) {
+          final selected = value == opt;
+          return Expanded(
+            child: GestureDetector(
+              onTap: enabled ? () => onChanged(selected ? null : opt) : null,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: selected ? kAttendanceBlue : Colors.white,
+                  border: Border.all(
+                    color: selected ? Colors.yellow : Colors.grey[300]!,
+                    width: selected ? 1.5 : 0.5,
+                  ),
+                ),
+                child: Center(
+                  // Keeps '0.5' legible when the system font scale is large,
+                  // instead of overflowing a fixed-width segment.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(
+                        opt,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: selected ? Colors.white : Colors.grey[700],
+                        ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                InkWell(
-                  onTap: _pickDate,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(children: [
-                      const Icon(Icons.calendar_today,
-                          size: 16, color: Color(0xFF1C1CF0)),
-                      const SizedBox(width: 6),
-                      Text(_dateLabel,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1C1CF0))),
-                    ]),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ---------- Roster ----------
-          Expanded(
-            child: !ready
-                ? const Center(
-                child: Text('Elige una obra y una fecha',
-                    style: TextStyle(color: Colors.grey)))
-                : _loadingRoster
-                ? const Center(child: CircularProgressIndicator())
-                : _rows.isEmpty
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('Nadie en esta obra para esa fecha',
-                      style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _addWorker,
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('AGREGAR TRABAJADOR'),
-                  ),
-                ],
               ),
-            )
-                : ListView(
-              padding: const EdgeInsets.all(12),
-              children: _rows.entries.map((e) {
-                final row = e.value;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                        12, 8, 12, 8),
-                    child: Column(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                  (row['name'] ?? '').toString(),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight:
-                                      FontWeight.w600)),
-                            ),
-                            if (row['conflict'] != null)
-                              Tooltip(
-                                message:
-                                'Ya registrado en ${row['conflict']}',
-                                child: Icon(Icons.warning_amber,
-                                    size: 18,
-                                    color: Colors.orange[800]),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 6,
-                          children: _statuses.map((st) {
-                            final sel = row['status'] == st;
-                            return ChoiceChip(
-                              label: Text(st,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: sel
-                                          ? Colors.white
-                                          : Colors.black87)),
-                              selected: sel,
-                              onSelected: (_) => setState(() =>
-                              row['status'] =
-                              sel ? null : st),
-                              selectedColor:
-                              const Color(0xFF1C1CF0),
-                              showCheckmark: false,
-                            );
-                          }).toList(),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
             ),
-          ),
-        ],
+          );
+        }).toList(),
       ),
-      floatingActionButton: (ready && _rows.isNotEmpty)
-          ? FloatingActionButton.extended(
-        onPressed: _saving ? null : _save,
-        backgroundColor: const Color(0xFF1C1CF0),
-        icon: _saving
-            ? const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-                strokeWidth: 2, color: Colors.white))
-            : const Icon(Icons.save, color: Colors.white),
-        label: Text(_saving ? 'GUARDANDO...' : 'GUARDAR',
-            style: const TextStyle(color: Colors.white)),
-      )
-          : null,
     );
   }
 }
