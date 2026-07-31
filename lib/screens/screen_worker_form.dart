@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:control_app/api.dart';
+import 'package:control_app/screens/widgets/worker_card.dart';
 
 /// Full-screen form to register a new worker: photo, basic data
 /// and (optionally) the personal info shown in their ficha.
@@ -350,30 +350,6 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
   }
 
   // ---------- UI helpers ----------
-  Widget _sectionCard(String title, List<Widget> children) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey[600],
-                letterSpacing: 0.8,
-              ),
-            ),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _field(TextEditingController c, String label,
       {TextInputType? kb, bool caps = false, bool money = false, int? maxLen}) {
     return Padding(
@@ -424,18 +400,14 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
                 onTap: _saving ? null : _pickPhoto,
                 child: Stack(
                   children: [
-                    CircleAvatar(
-                      radius: 56,
-                      backgroundColor: Colors.white24,
-                      backgroundImage: _photo != null
-                          ? FileImage(_photo!) as ImageProvider
-                          : (_existingPhoto != null
-                          ? CachedNetworkImageProvider(_existingPhoto!)
-                          : null),
-                      child: (_photo == null && _existingPhoto == null)
-                          ? const Icon(Icons.person,
-                          size: 56, color: Colors.white70)
-                          : null,
+                    // Rendering only. The upload itself stays in
+                    // _uploadPhoto on the save path, untouched.
+                    WorkerAvatar(
+                      file: _photo,
+                      photoUrl: _existingPhoto,
+                      diameter: 112,
+                      placeholderColor: Colors.white24,
+                      iconColor: Colors.white70,
                     ),
                     Positioned(
                       bottom: 0,
@@ -471,7 +443,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             const SizedBox(height: 16),
 
             // ---------- Basic data ----------
-            _sectionCard('DATOS GENERALES', [
+            WorkerSectionCard(title: 'DATOS GENERALES', children: [
               _field(_name, 'NOMBRE COMPLETO *', caps: true),
               _field(_role, 'PUESTO'),
               Padding(
@@ -513,7 +485,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             const SizedBox(height: 12),
 
             // ---------- Personal info ----------
-            _sectionCard('INFORMACIÓN PERSONAL (OPCIONAL)', [
+            WorkerSectionCard(title: 'INFORMACIÓN PERSONAL (OPCIONAL)', children: [
               _field(_nss, 'NSS', kb: TextInputType.number),
               _field(_curp, 'CURP', caps: true),
               _field(_phone, 'TELÉFONO', kb: TextInputType.phone),
@@ -523,14 +495,14 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
             const SizedBox(height: 12),
 
             // ---------- Emergency ----------
-            _sectionCard('CONTACTO DE EMERGENCIA (OPCIONAL)', [
+            WorkerSectionCard(title: 'CONTACTO DE EMERGENCIA (OPCIONAL)', children: [
               _field(_ecName, 'NOMBRE', caps: true),
               _field(_ecPhone, 'TELÉFONO', kb: TextInputType.phone),
             ]),
             const SizedBox(height: 12),
 
             // ---------- Fiscal & bank (all users) ----------
-            _sectionCard('DATOS FISCALES Y BANCO (OPCIONAL)', [
+            WorkerSectionCard(title: 'DATOS FISCALES Y BANCO (OPCIONAL)', children: [
               _field(_rfc, 'RFC', caps: true, maxLen: 13),
               _field(_cardNumber, 'NÚMERO DE TARJETA',
                   kb: TextInputType.number, maxLen: 16),
@@ -540,7 +512,7 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
             // ---------- Nómina / salary (admins only) ----------
             if (_isAdmin)
-              _sectionCard('NÓMINA', [
+              WorkerSectionCard(title: 'NÓMINA', children: [
                 _field(_sdi, 'SDI',
                     kb: const TextInputType.numberWithOptions(decimal: true),
                     money: true),

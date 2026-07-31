@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/api.dart';
 import 'package:control_app/screens/models/worker.dart';
+import 'package:control_app/screens/widgets/worker_card.dart';
 import 'screen_worker_form.dart';
 
 /// Read-only ficha of a worker: personal info, fiscal/bank data, nómina
@@ -137,24 +137,14 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    ClipOval(
-                      child: SizedBox(
-                        width: 72,
-                        height: 72,
-                        child: photoUrl != null
-                            ? CachedNetworkImage(
-                          imageUrl: photoUrl,
-                          fit: BoxFit.cover,
-                          errorWidget: (c, url, e) => const Icon(
-                              Icons.person,
-                              size: 40),
-                        )
-                            : Container(
-                          color: Colors.blue[400],
-                          child: const Icon(Icons.person,
-                              size: 40, color: Colors.white),
-                        ),
-                      ),
+                    // Values are the ones resolved above, which prefer the
+                    // freshly loaded row over the list's stale copy. Passing
+                    // resolved values rather than the Worker object keeps a
+                    // second source of truth structurally impossible.
+                    WorkerAvatar(
+                      photoUrl: photoUrl,
+                      diameter: 72,
+                      placeholderColor: Colors.blue[400]!,
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -195,32 +185,22 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
             const SizedBox(height: 12),
 
             // ---------- Personal info ----------
-            Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 8),
-                child: Column(
-                  children: [
-                    _row(Icons.badge, 'NSS', d['nss']),
-                    _row(Icons.fingerprint, 'CURP', d['curp']),
-                    _row(Icons.phone, 'TELÉFONO', d['phone']),
-                    _row(Icons.home, 'DIRECCIÓN', d['address']),
-                    _row(Icons.bloodtype, 'TIPO DE SANGRE',
-                        d['blood_type']),
-                    _row(Icons.contact_emergency,
-                        'CONTACTO DE EMERGENCIA',
-                        d['emergency_contact_name']),
-                    _row(Icons.phone_in_talk, 'TEL. DE EMERGENCIA',
-                        d['emergency_contact_phone'],
-                        last: true),
-                  ],
-                ),
-              ),
-            ),
+            // This card was the only untitled one; the shared widget gives it
+            // a heading to match every other section.
+            WorkerSectionCard(title: 'INFORMACIÓN PERSONAL', children: [
+              _row(Icons.badge, 'NSS', d['nss']),
+              _row(Icons.fingerprint, 'CURP', d['curp']),
+              _row(Icons.phone, 'TELÉFONO', d['phone']),
+              _row(Icons.home, 'DIRECCIÓN', d['address']),
+              _row(Icons.bloodtype, 'TIPO DE SANGRE', d['blood_type']),
+              _row(Icons.contact_emergency, 'CONTACTO DE EMERGENCIA',
+                  d['emergency_contact_name']),
+              _row(Icons.phone_in_talk, 'TEL. DE EMERGENCIA',
+                  d['emergency_contact_phone'],
+                  last: true),
+            ]),
             const SizedBox(height: 12),
-            _infoCard('DATOS FISCALES Y BANCO', [
+            WorkerSectionCard(title: 'DATOS FISCALES Y BANCO', children: [
               _row(Icons.receipt_long, 'RFC', d['rfc']),
               _row(Icons.credit_card, 'NÚMERO DE TARJETA',
                   _maskCard(d['card_number']),
@@ -230,7 +210,7 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
             ]),
             if (_isAdmin) ...[
               const SizedBox(height: 12),
-              _infoCard('NÓMINA', [
+              WorkerSectionCard(title: 'NÓMINA', children: [
                 _row(Icons.attach_money, 'SDI', _money(d['sdi'])),
                 _row(Icons.more_time, 'COSTO HORA EXTRA',
                     _money(d['extra_hour_cost'])),
@@ -413,26 +393,4 @@ class _WorkerDetailScreenState extends State<WorkerDetailScreen> {
     return n == null ? null : '\$ ${n.toStringAsFixed(2)}';
   }
 
-  Widget _infoCard(String title, List<Widget> rows) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey[600],
-                  letterSpacing: 0.8,
-                )),
-            const SizedBox(height: 4),
-            ...rows,
-          ],
-        ),
-      ),
-    );
-  }
 }
