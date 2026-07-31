@@ -1689,11 +1689,27 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         _showError('No tienes permiso para escribir en esta bitácora');
       } else {
         setState(() => _isSaving = false);
-        _showError('Error al guardar (HTTP ${response.statusCode})');
+        // The server-side avance cap answers 400 with a written reason. It
+        // should only fire when someone else registered progress while this
+        // form was open, and a bare status code would leave that unexplained.
+        _showError(_serverMessage(response) ??
+            'Error al guardar (HTTP ${response.statusCode})');
       }
     } catch (e) {
       setState(() => _isSaving = false);
       _showError('Error: $e');
+    }
+  }
+
+  /// FastAPI puts the human-readable reason in `detail`.
+  String? _serverMessage(http.Response resp) {
+    try {
+      final body = jsonDecode(utf8.decode(resp.bodyBytes));
+      final detail = body is Map ? body['detail'] : null;
+      final text = detail?.toString().trim();
+      return (text == null || text.isEmpty) ? null : text;
+    } catch (_) {
+      return null;
     }
   }
 
