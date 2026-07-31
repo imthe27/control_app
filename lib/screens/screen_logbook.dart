@@ -500,6 +500,20 @@ class _NoteCard extends StatelessWidget {
     return d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(2);
   }
 
+  /// The work date the note describes; falls back to the capture timestamp
+  /// for responses from a backend that predates phase 12.
+  String _cardDate() {
+    final nd = note['note_date'];
+    if (nd != null) {
+      try {
+        return DateFormat('dd/MM/yyyy').format(DateTime.parse(nd));
+      } catch (_) {
+        // fall through to created_at
+      }
+    }
+    return _fmtDate(note['created_at']);
+  }
+
   @override
   Widget build(BuildContext context) {
     final photos = List<String>.from(note['photos'] ?? []);
@@ -570,7 +584,7 @@ class _NoteCard extends StatelessWidget {
                       ),
                     const Spacer(),
                     Text(
-                      _fmtDate(note['created_at']),
+                      _cardDate(),
                       style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                     ),
                     if (onMenu != null)
@@ -885,6 +899,20 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     return d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(2);
   }
 
+  /// The work date the note describes; falls back to the capture timestamp
+  /// for responses from a backend that predates phase 12.
+  String _noteDateLabel() {
+    final nd = widget.note['note_date'];
+    if (nd != null) {
+      try {
+        return DateFormat('dd/MM/yyyy').format(DateTime.parse(nd));
+      } catch (_) {
+        // fall through to created_at
+      }
+    }
+    return _fmtDate(widget.note['created_at']);
+  }
+
   Future<void> _edit() async {
     final saved = await Navigator.push<bool>(
       context,
@@ -1068,10 +1096,19 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                                     fontSize: 15, fontWeight: FontWeight.w700),
                               ),
                               Text(
-                                _fmtDate(note['created_at']),
+                                _noteDateLabel(),
                                 style: TextStyle(
                                     fontSize: 12, color: Colors.grey[600]),
                               ),
+                              // Capture timestamp — a semi-formal record
+                              // should show "describes the 12th, written on
+                              // the 30th" rather than hide it.
+                              if (note['note_date'] != null)
+                                Text(
+                                  'REGISTRADA: ${_fmtDate(note['created_at'])}',
+                                  style: TextStyle(
+                                      fontSize: 10, color: Colors.grey[500]),
+                                ),
                             ],
                           ),
                         ),
@@ -1235,6 +1272,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
   final _avanceController = TextEditingController();
   int? _partidaId;
   int? _conceptoId; // selected catalog item to register progress against
+  DateTime _noteDate = DateTime.now(); // work date the note describes
   final List<File> _photos = [];
   bool _isSaving = false;
   late List<Map<String, dynamic>> _partidas;
@@ -1261,6 +1299,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       if (pid != null && _partidas.any((p) => p['id'] == pid)) {
         _partidaId = pid;
       }
+      final nd = DateTime.tryParse((n['note_date'] ?? '').toString()) ??
+          DateTime.tryParse((n['created_at'] ?? '').toString());
+      if (nd != null) _noteDate = nd;
       _existingPhotos.addAll(List<String>.from(n['photos'] ?? []));
       final av = n['avance'];
       if (av != null && widget.catalog.any((c) => c['id'] == av['item_id'])) {
@@ -1532,6 +1573,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         'photos': [...keptFilenames, ...filenames],
         'avance_item_id': _conceptoId,
         'avance_quantity': avanceQty,
+        'note_date': DateFormat('yyyy-MM-dd').format(_noteDate),
       });
       final response = isEditing
           ? await http.put(u('/notes/${widget.noteToEdit!['id']}'),
@@ -1566,6 +1608,20 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         .isEmpty) ? null : u.toString();
   }
 
+  /// Past days are deliberately writable here — the opposite of
+  /// record_attendance, where they are read-only. Future days are not:
+  /// a site logbook describes work already done.
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _noteDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'FECHA DE LA NOTA',
+    );
+    if (picked != null) setState(() => _noteDate = picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1592,6 +1648,51 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // ---------- Fecha ----------
+            Card(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: _pickDate,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today,
+                          size: 18, color: Color(0xFF1C1CF0)),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'FECHA DE LA NOTA',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey[600],
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            DateFormat('dd/MM/yyyy').format(_noteDate),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Icon(Icons.edit, size: 18, color: Colors.grey[500]),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
             // ---------- Partida ----------
             Card(
               shape: RoundedRectangleBorder(
