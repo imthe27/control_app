@@ -264,11 +264,15 @@ class _InfoTab extends StatelessWidget {
                   label: 'NO. DE CONTRATO',
                   value: project['contract_number'],
                 ),
-                _InfoRow(
-                  icon: Icons.attach_money,
-                  label: 'MONTO',
-                  value: _fmtMoney(project['contract_amount']),
-                ),
+                // The server omits the key entirely for non-admins (vs null
+                // for "admin, not set"), exactly so the client can hide the
+                // row rather than render a misleading SIN REGISTRAR.
+                if (project.containsKey('contract_amount'))
+                  _InfoRow(
+                    icon: Icons.attach_money,
+                    label: 'MONTO',
+                    value: _fmtMoney(project['contract_amount']),
+                  ),
                 _InfoRow(
                   icon: Icons.event,
                   label: 'INICIO',
