@@ -1268,6 +1268,9 @@ class NoteFormScreen extends StatefulWidget {
 }
 
 class _NoteFormScreenState extends State<NoteFormScreen> {
+  static const double _eps = 1e-9; // float slack: typing exactly the
+                                   // remaining quantity must not be rejected
+
   final _textController = TextEditingController();
   final _avanceController = TextEditingController();
   int? _partidaId;
@@ -1276,6 +1279,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
   final List<File> _photos = [];
   bool _isSaving = false;
   late List<Map<String, dynamic>> _partidas;
+  late List<Map<String, dynamic>> _catalog;
   final List<String> _existingPhotos = []; // URLs kept from the edited note
 
   bool get isEditing => widget.noteToEdit != null;
@@ -1284,14 +1288,26 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
   List<Map<String, dynamic>> get _conceptosForPartida =>
       _partidaId == null
           ? const []
-          : widget.catalog
+          : _catalog
           .where((c) => c['partida_id'] == _partidaId)
           .toList();
+
+  /// Conceptos offered in the dropdown: those with headroom left. The current
+  /// selection is always kept — the dropdown asserts if its value is missing
+  /// from the items, and keeping it is what allows downward corrections on
+  /// the note that completed a concepto.
+  List<Map<String, dynamic>> get _conceptosElegibles =>
+      _conceptosForPartida.where((c) {
+        if (c['id'] == _conceptoId) return true;
+        final h = _headroom(c);
+        return h == null || h > _eps;
+      }).toList();
 
   @override
   void initState() {
     super.initState();
     _partidas = List.of(widget.partidas);
+    _catalog = List.of(widget.catalog);
     final n = widget.noteToEdit;
     if (n != null) {
       _textController.text = (n['note_text'] ?? '').toString();
@@ -1304,11 +1320,87 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       if (nd != null) _noteDate = nd;
       _existingPhotos.addAll(List<String>.from(n['photos'] ?? []));
       final av = n['avance'];
-      if (av != null && widget.catalog.any((c) => c['id'] == av['item_id'])) {
+      if (av != null && _catalog.any((c) => c['id'] == av['item_id'])) {
         _conceptoId = av['item_id'];
         _avanceController.text = (av['quantity'] ?? '').toString();
       }
     }
+    // The passed-in catalog is as old as the last tab load, and until the
+    // server cap (step 4b) ships this form's validation is the only thing
+    // preventing >100% — refresh `executed` on open.
+    _refreshCatalog();
+  }
+
+  Future<void> _refreshCatalog() async {
+    try {
+      final resp = await http.get(
+          u('/projects/${widget.projectId}/catalog-items'),
+          headers: await authHeaders(json: false));
+      if (!mounted || resp.statusCode != 200) return;
+      final fresh = List<Map<String, dynamic>>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)));
+      setState(() {
+        _catalog = fresh;
+        // A concepto deleted since the tab loaded must not linger as the
+        // dropdown value: value-not-in-items is an assertion failure.
+        if (_conceptoId != null &&
+            !fresh.any((c) => c['id'] == _conceptoId)) {
+          _conceptoId = null;
+        }
+      });
+    } catch (_) {
+      // keep the list passed in; validation falls back to it
+    }
+  }
+
+  /// What this note already contributes to concepto [itemId] on the server
+  /// (`this(c)` in the ≤100% rule) — 0 when creating.
+  double _thisStored(dynamic itemId) {
+    final av = widget.noteToEdit?['avance'];
+    if (av == null || av['item_id'] != itemId) return 0;
+    return (av['quantity'] as num?)?.toDouble() ?? 0;
+  }
+
+  /// Remaining registrable quantity for [c]:
+  /// `quantity − (executed − this)`. Null when the concepto has no quantity
+  /// to cap against — those are shown and never validated.
+  double? _headroom(Map<String, dynamic> c) {
+    final q = (c['quantity'] as num?)?.toDouble();
+    if (q == null) return null;
+    final executed = (c['executed'] as num?)?.toDouble() ?? 0;
+    return q - (executed - _thisStored(c['id']));
+  }
+
+  Map<String, dynamic>? get _selectedConcepto {
+    final match = _catalog.where((c) => c['id'] == _conceptoId);
+    return match.isEmpty ? null : match.first;
+  }
+
+  double? _enteredQty() =>
+      double.tryParse(_avanceController.text.trim().replaceAll(',', ''));
+
+  String _fmtQty(double d) =>
+      d == d.roundToDouble() ? d.toInt().toString() : d.toStringAsFixed(2);
+
+  /// Inline validation for the quantity field; null when the entry fits.
+  /// Until the server cap (4b) deploys, this is the only ≤100% guard.
+  String? get _avanceError {
+    final c = _selectedConcepto;
+    if (c == null) return null;
+    final h = _headroom(c);
+    if (h == null) return null;
+    final v = _enteredQty();
+    if (v == null || v <= 0) return null; // emptiness is handled on save
+    if (v <= h + _eps) return null;
+    final q = (c['quantity'] as num).toDouble();
+    final others = q - h;
+    final unit = (c['unit'] ?? '').toString();
+    if (h <= _eps) {
+      return 'Concepto completo: ya hay ${_fmtQty(others)} de '
+          '${_fmtQty(q)} $unit registrados en otras notas';
+    }
+    return 'Máximo ${_fmtQty(h)} $unit — ya hay ${_fmtQty(others)} de '
+        '${_fmtQty(q)} registrados en otras notas';
   }
 
   @override
@@ -1509,6 +1601,8 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
         setState(() {
           _partidas.add(nueva);
           _partidaId = nueva['id']; // select it right away
+          _conceptoId = null; // reset concepto on partida change, same as
+                              // the dropdown's onChanged
         });
       } else if (resp.statusCode == 401 || resp.statusCode == 403) {
         _showError('No tienes permiso para crear partidas');
@@ -1530,10 +1624,16 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     // If a concepto is chosen, its quantity must be valid
     double? avanceQty;
     if (_conceptoId != null) {
-      avanceQty =
-          double.tryParse(_avanceController.text.trim().replaceAll(',', ''));
+      avanceQty = _enteredQty();
       if (avanceQty == null || avanceQty <= 0) {
         _showError('La cantidad de avance no es válida');
+        return;
+      }
+      // Re-checked here, not just in the disabled button: until the server
+      // cap (4b) deploys, nothing else prevents >100%.
+      final err = _avanceError;
+      if (err != null) {
+        _showError(err);
         return;
       }
     }
@@ -1598,10 +1698,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
   }
 
   String? _selectedConceptoUnit() {
-    if (_conceptoId == null) return null;
-    final match = widget.catalog.where((c) => c['id'] == _conceptoId);
-    if (match.isEmpty) return null;
-    final u = match.first['unit'];
+    final u = _selectedConcepto?['unit'];
     return (u == null || u
         .toString()
         .trim()
@@ -1765,8 +1862,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
             ),
             const SizedBox(height: 12),
 
-            // ---------- Avance (optional, only when a partida with conceptos is chosen) ----------
-            if (_conceptosForPartida.isNotEmpty) ...[
+            // ---------- Avance (optional; only conceptos with headroom left,
+            // so a finished partida offers nothing to register) ----------
+            if (_conceptosElegibles.isNotEmpty) ...[
               Card(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
@@ -1802,7 +1900,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                               value: null,
                               child: Text('SIN AVANCE'),
                             ),
-                            ..._conceptosForPartida.map((c) {
+                            ..._conceptosElegibles.map((c) {
                               final q = (c['quantity'] as num?)?.toDouble();
                               final ex =
                                   (c['executed'] as num?)?.toDouble() ?? 0;
@@ -1831,11 +1929,14 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                           controller: _avanceController,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
+                          onChanged: (_) => setState(() {}),
                           decoration: InputDecoration(
                             labelText: 'CANTIDAD EJECUTADA'
                                 '${_selectedConceptoUnit() != null
                                 ? ' (${_selectedConceptoUnit()})'
                                 : ''}',
+                            errorText: _avanceError,
+                            errorMaxLines: 3,
                           ),
                         ),
                       ],
@@ -1992,7 +2093,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                   ),
                   elevation: 2,
                 ),
-                onPressed: _isSaving ? null : _save,
+                onPressed: (_isSaving || _avanceError != null) ? null : _save,
                 icon: _isSaving
                     ? const SizedBox(
                   width: 20,
