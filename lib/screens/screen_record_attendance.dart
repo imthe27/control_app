@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/api.dart';
+import 'package:control_app/screens/widgets/attendance_card.dart';
 
 class RecordAttendanceScreen extends StatefulWidget {
   final int projectId;
@@ -368,12 +368,6 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
     );
   }
 
-  String _getInitials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
-    if (parts.isEmpty) return '?';
-    return parts.map((p) => p[0]).take(2).join().toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
     final todayKey = _formatDate(selectedDate);
@@ -504,7 +498,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                             worker: worker,
                             status: status,
                             extraHours: allExtras[todayKey]![name] ?? '0',
-                            initials: _getInitials(name),
+                            initials: attendanceInitials(name),
                             readOnly: _isPastDay,
                             onStatusChanged: (newStatus) {
                               setState(() {
@@ -591,7 +585,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
   }
 }
 
-class _AttendanceCard extends StatefulWidget {
+class _AttendanceCard extends StatelessWidget {
   final Map<String, dynamic> worker;
   final String status;
   final String extraHours;
@@ -614,243 +608,41 @@ class _AttendanceCard extends StatefulWidget {
   });
 
   @override
-  State<_AttendanceCard> createState() => _AttendanceCardState();
-}
-
-class _AttendanceCardState extends State<_AttendanceCard> {
-  static const List<double> heOptions = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0];
-  late PageController _heController;
-
-  @override
-  void initState() {
-    super.initState();
-    final currentValue = double.tryParse(widget.extraHours) ?? 0.0;
-    final initialIndex = heOptions.indexOf(currentValue).clamp(0, heOptions.length - 1);
-    _heController = PageController(
-      viewportFraction: 0.35,
-      initialPage: initialIndex,
-    );
-  }
-
-  @override
-  void dispose() {
-    _heController.dispose();
-    super.dispose();
-  }
-
-  /// Statuses this screen renders read-only. Nothing here can SET them any
-  /// more — the long-press selection that did was removed — but they still
-  /// arrive from the backfill screen, which writes 'I' for incapacidad while
-  /// this screen historically wrote 'INC'. The backend validates neither, so
-  /// both spellings can exist; match both or a backfilled row shows up as a
-  /// plain absence.
-  static const _specialStatuses = {'V', 'INC', 'I'};
-
-  bool get _isSpecial => _specialStatuses.contains(widget.status);
-
-  /// One ink colour for both watermarks. V and INC/I are told apart by the
-  /// icon and the label, not by hue — a coloured icon on a greyed-out card
-  /// reads as active, which is the opposite of what these rows are.
-  static const _watermarkInk = Color(0xFF424242);
-
-  String _getStatusLabel() {
-    switch (widget.status) {
-      case '1':
-        return 'PRESENTE';
-      case 'V':
-        return 'VACACIONES';
-      case 'INC':
-      case 'I':
-        return 'INCAPACITADO';
-      default:
-        return 'FALTA';
-    }
-  }
-
-  IconData _getStatusIcon() =>
-      widget.status == 'V' ? Icons.beach_access : Icons.local_hospital;
-
-  String _formatHours(double hours) {
-    return hours == hours.toInt() ? '${hours.toInt()}' : '$hours';
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final isSpecial = _isSpecial;
-    final hoursValue = double.tryParse(widget.extraHours) ?? 0.0;
-    final isPresent = widget.status == '1';
+    final isSpecial = isSpecialAttendanceStatus(status);
+    final isPresent = status == '1';
     // A past day disables interaction without changing how the card looks —
     // the screen doubles as an attendance viewer. Only V/INC/I grey out.
-    final locked = widget.readOnly || isSpecial;
+    final locked = readOnly || isSpecial;
 
     return GestureDetector(
-      onTap: locked ? null : () => widget.onStatusChanged(isPresent ? '0' : '1'),
+      onTap: locked ? null : () => onStatusChanged(isPresent ? '0' : '1'),
       child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white24, width: 0.5),
-          color: isSpecial
-              ? Colors.grey[400]!.withValues(alpha: 0.95)
-              : Colors.white.withValues(alpha: 0.95),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+        decoration: attendanceCardDecoration(isSpecial),
         child: Stack(
           children: [
             Column(
               children: [
                 Expanded(
                   flex: 2,
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                      color: Color(0xFF1C1CF0),
-                    ),
-                    child: widget.worker['photo_url'] == null
-                        ? Center(
-                      child: Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Colors.blue[400]!, Colors.blue[600]!],
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            widget.initials,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                        : ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(16)),
-                      child: CachedNetworkImage(
-                        imageUrl: widget.worker['photo_url']!,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        placeholder: (context, url) => const Center(
-                          child: CircularProgressIndicator(color: Colors.yellow),
-                        ),
-                        errorWidget: (context, url, error) =>
-                        const Center(child: Icon(Icons.person)),
-                      ),
-                    ),
+                  child: AttendancePhotoHeader(
+                    photoUrl: worker['photo_url']?.toString(),
+                    initials: initials,
                   ),
                 ),
                 Expanded(
                   flex: 1,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Text(
-                          widget.worker['name'],
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: AttendanceNameBlock(
+                    name: (worker['name'] ?? '').toString(),
                   ),
                 ),
                 Expanded(
                   flex: 1,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.vertical(
-                          bottom: Radius.circular(16)),
-                      color: isSpecial ? Colors.grey[100] : Colors.blue[50],
-                    ),
-                    child: IgnorePointer(
-                      ignoring: locked,
-                      child: PageView.builder(
-                        controller: _heController,
-                        itemCount: heOptions.length,
-                        onPageChanged: (index) {
-                          widget.onExtraHoursChanged(heOptions[index].toString());
-                        },
-                        itemBuilder: (context, index) {
-                          final hours = heOptions[index];
-                          final isSelectedHours = hoursValue == hours;
-                          return Center(
-                            child: GestureDetector(
-                              onTap: () {
-                                _heController.animateToPage(
-                                  index,
-                                  duration: const Duration(milliseconds: 250),
-                                  curve: Curves.easeOut,
-                                );
-                              },
-                              child: AspectRatio(
-                                aspectRatio: 1,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    color: isSelectedHours
-                                        ? Color(0xFF1C1CF0)
-                                        : Colors.white,
-                                    border: Border.all(
-                                      color: isSelectedHours
-                                          ? Colors.yellow
-                                          : Colors.grey[300]!,
-                                      width: isSelectedHours ? 1.5 : 0.5,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        'HE',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w600,
-                                          color: isSelectedHours
-                                              ? Colors.white70
-                                              : Colors.grey[500],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _formatHours(hours),
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.bold,
-                                          color: isSelectedHours
-                                              ? Colors.white
-                                              : Colors.grey[700],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                  child: AttendanceHoursStrip(
+                    value: extraHours,
+                    enabled: !locked,
+                    isSpecial: isSpecial,
+                    onChanged: onExtraHoursChanged,
                   ),
                 ),
               ],
@@ -858,58 +650,9 @@ class _AttendanceCardState extends State<_AttendanceCard> {
             Positioned(
               top: 8,
               left: 8,
-              child: Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isPresent ? Colors.green : Colors.white.withValues(alpha: 0.85),
-                  border: Border.all(
-                    color: isPresent ? Colors.green : Colors.grey[400]!,
-                    width: 1.5,
-                  ),
-                ),
-                child: Icon(
-                  Icons.check,
-                  size: 16,
-                  color: isPresent ? Colors.white : Colors.grey[400],
-                ),
-              ),
+              child: AttendancePresentBadge(isPresent: isPresent),
             ),
-            // V / INC / I watermark. Nothing in the app sets these any more,
-            // but the backfill screen can, so the card still has to show them.
-            if (isSpecial)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      color: Colors.grey[400]!.withValues(alpha: 0.88),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _getStatusIcon(),
-                          size: 56,
-                          color: _watermarkInk.withValues(alpha: 0.70),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _getStatusLabel(),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                            color: _watermarkInk,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+            if (isSpecial) AttendanceStatusWatermark(status: status),
           ],
         ),
       ),
