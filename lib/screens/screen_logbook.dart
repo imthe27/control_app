@@ -756,7 +756,7 @@ class _NoteCard extends StatelessWidget {
                     const Spacer(),
                     Text(
                       _cardDate(),
-                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                     ),
                     if (onMenu != null)
                       GestureDetector(
@@ -1307,7 +1307,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                               Text(
                                 _noteDateLabel(),
                                 style: TextStyle(
-                                    fontSize: 12, color: Colors.grey[600]),
+                                    fontSize: 14, color: Colors.grey[600]),
                               ),
                               // Capture timestamp — a semi-formal record
                               // should show "describes the 12th, written on
