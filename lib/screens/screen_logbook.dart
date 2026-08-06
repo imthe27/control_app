@@ -256,6 +256,20 @@ class _LogbookTabState extends State<LogbookTab>
     }
   }
 
+  /// The notes currently on screen, after the partida filter.
+  ///
+  /// A getter rather than a local in `build` so the print action prints exactly
+  /// what the user is looking at. Two copies of this predicate would drift, and
+  /// the failure would be quiet: a PDF that silently disagrees with the feed.
+  List<Map<String, dynamic>> get _filteredNotes {
+    if (_filterPartidaId == null) return _notes;
+    return _notes
+        .where((n) => _filterPartidaId == -1
+            ? n['partida_id'] == null
+            : n['partida_id'] == _filterPartidaId)
+        .toList();
+  }
+
   String get _filterLabel {
     if (_filterPartidaId == null) return 'TODAS';
     if (_filterPartidaId == -1) return 'SIN PARTIDA';
@@ -263,6 +277,154 @@ class _LogbookTabState extends State<LogbookTab>
     if (match.isEmpty) return 'TODAS';
     final p = match.first;
     return p['code'] != null ? '${p['code']} · ${p['name']}' : p['name'];
+  }
+
+  /// Prints every note currently on screen as one document.
+  ///
+  /// Prints `_filteredNotes`, not `_notes`: what you see is what you get, and
+  /// the cover sheet names the filter so a printed subset cannot be mistaken
+  /// for the whole bitácora.
+  ///
+  /// No network call for the notes — `_notes` already holds every note for the
+  /// obra, because `GET /projects/{id}/notes` is unpaginated.
+  Future<void> _printLogbook() async {
+    final notes = _filteredNotes;
+    if (notes.isEmpty) return;
+
+    final photoCount = notes.fold<int>(
+      0,
+      (sum, n) => sum + List<dynamic>.from(n['photos'] ?? const []).length,
+    );
+
+    var includePhotos = true;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('IMPRIMIR BITÁCORA'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(notes.length == 1
+                  ? '1 nota'
+                  : '${notes.length} notas'),
+              if (_filterPartidaId != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('Filtro: $_filterLabel',
+                      style: const TextStyle(fontSize: 12)),
+                ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  photoCount == 1
+                      ? '1 fotografía'
+                      : '$photoCount fotografías',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('INCLUIR FOTOGRAFÍAS',
+                    style: TextStyle(fontSize: 13)),
+                value: includePhotos,
+                onChanged: (v) => setModal(() => includePhotos = v),
+              ),
+              // Each photo is downloaded and re-encoded one at a time, so the
+              // wait scales with the count rather than being a fixed cost.
+              if (includePhotos && photoCount > 50)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Con tantas fotografías puede tardar varios minutos.',
+                    style: TextStyle(fontSize: 12, color: Colors.orange),
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('CANCELAR')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('GENERAR')),
+          ],
+        ),
+      ),
+    );
+    if (go != true || !mounted) return;
+
+    final progress = ValueNotifier<String>('GENERANDO… 0 / ${notes.length}');
+    var dialogUp = false;
+    try {
+      dialogUp = true;
+      // Not dismissible, and the back button is swallowed: cancelling the
+      // dialog would not cancel the generation, it would just orphan it.
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: progress,
+                    builder: (_, text, __) => Text(text),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final bytes = await buildLogbookPdf(
+        notes: notes,
+        projectName: (widget.project['name'] ?? '').toString(),
+        includePhotos: includePhotos,
+        filterLabel: _filterPartidaId == null ? null : _filterLabel,
+        onProgress: (done, total) =>
+            progress.value = 'GENERANDO… $done / $total',
+      );
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      dialogUp = false;
+
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'bitacora_${pdfSlug((widget.project['name'] ?? '').toString())}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo generar el PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      // A throw between showing and popping would otherwise strand a
+      // non-dismissible dialog over the screen, with no way out.
+      if (dialogUp && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      progress.dispose();
+    }
   }
 
   void _openFilterDialog() {
@@ -388,14 +550,7 @@ class _LogbookTabState extends State<LogbookTab>
             ],
           )
               : Builder(builder: (context) {
-            final filtered = _filterPartidaId == null
-                ? _notes
-                : _notes
-                .where((n) =>
-            _filterPartidaId == -1
-                ? n['partida_id'] == null
-                : n['partida_id'] == _filterPartidaId)
-                .toList();
+            final filtered = _filteredNotes;
             return ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
               itemCount: filtered.length + 1,
@@ -433,6 +588,19 @@ class _LogbookTabState extends State<LogbookTab>
                               icon: const Icon(Icons.format_list_numbered,
                                   size: 18),
                               label: const Text('PARTIDAS'),
+                            ),
+                          // Compact icon, not a third TextButton.icon: a third
+                          // label overflows this row on a narrow phone.
+                          //
+                          // Deliberately NOT gated on _canWrite. PARTIDAS edits
+                          // the obra so it is write-gated; printing only reads
+                          // what is already on screen.
+                          if (filtered.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(Icons.print,
+                                  color: Colors.white70),
+                              tooltip: 'IMPRIMIR BITÁCORA',
+                              onPressed: _printLogbook,
                             ),
                         ],
                       ),
