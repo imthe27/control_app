@@ -48,6 +48,8 @@ dependencies:
   package_info_plus: ^9.0.1
   permission_handler: ^12.0.3
   url_launcher: ^6.3.2
+  pdf: ^3.13.0
+  printing: ^5.15.0
 
 dev_dependencies:
   flutter_test:
@@ -72,11 +74,13 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  # Directory form on purpose: a file dropped into assets/ is bundled on the
+  # next build with no pubspec edit. The bitácora letterhead logo is expected
+  # at assets/logo_cotelsa.png — until it exists the PDF falls back to a text
+  # wordmark, so the build never depends on the file being there. Covers the
+  # same four files that used to be listed individually.
   assets:
-  - assets/2df5b81c8b584348e7c4bb1f07ad6e87_fit.jpg
-  - assets/42f8f0125ac4eeea8301cba1d8dc88eb_fit.jpg
-  - assets/a3ca9011f7c72ccd2395d0fcac08ed26_fit.jpg
-  - assets/icon.png
+  - assets/
 
 flutter_launcher_icons:
     android: "ic_launcher"

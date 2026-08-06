@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'package:control_app/api.dart';
+import 'utils/note_pdf.dart';
 
 // ============================================================
 // LOGBOOK tab (lives inside ProjectDetailScreen)
@@ -139,6 +141,7 @@ class _LogbookTabState extends State<LogbookTab>
         builder: (_) => NoteDetailScreen(
           note: note,
           projectId: _projectId,
+          projectName: (widget.project['name'] ?? '').toString(),
           partidas: _partidas,
           catalog: _catalog,
           canManage: canManage,
@@ -865,6 +868,7 @@ class _PhotoGrid extends StatelessWidget {
 class NoteDetailScreen extends StatefulWidget {
   final Map<String, dynamic> note;
   final int projectId;
+  final String projectName;
   final List<Map<String, dynamic>> partidas;
   final List<Map<String, dynamic>> catalog;
   final bool canManage;
@@ -873,6 +877,7 @@ class NoteDetailScreen extends StatefulWidget {
     super.key,
     required this.note,
     required this.projectId,
+    required this.projectName,
     required this.partidas,
     required this.catalog,
     required this.canManage,
@@ -884,6 +889,37 @@ class NoteDetailScreen extends StatefulWidget {
 
 class _NoteDetailScreenState extends State<NoteDetailScreen> {
   bool _busy = false;
+
+  /// Hands the note to the OS print dialog — paper, not share, per the
+  /// scoping decision. One note at a time.
+  ///
+  /// Photos are not in the document yet; that is the second half of this
+  /// feature and is deliberately separate, because downscaling full-res site
+  /// photos is where the memory risk lives.
+  Future<void> _printNote() async {
+    setState(() => _busy = true);
+    try {
+      final bytes = await buildNotePdf(
+        note: widget.note,
+        projectName: widget.projectName,
+      );
+      if (!mounted) return;
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'nota_${widget.note['folio'] ?? widget.note['id']}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo generar el PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   String _fmtDate(String? iso) {
     if (iso == null) return '';
@@ -1041,6 +1077,11 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.print, color: Colors.white),
+            tooltip: 'IMPRIMIR',
+            onPressed: _busy ? null : _printNote,
+          ),
           if (widget.canManage)
             IconButton(
               icon: const Icon(Icons.more_vert, color: Colors.white),
