@@ -98,37 +98,83 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
       _loadingRoster = true;
       _rows.clear();
     });
+    final list = await _fetchRoster();
+    if (!mounted) return;
+    setState(() {
+      if (list != null) {
+        for (final w in list) {
+          _rows[w['id']] = _rowFrom(w);
+        }
+      }
+      _loadingRoster = false;
+    });
+  }
+
+  /// GET the backfill roster, optionally forcing extra worker ids into it.
+  ///
+  /// `include` is what lets a manual add come back through the *same* query a
+  /// roster row does — same conflict fields, same photo. Returns null on any
+  /// failure; each caller decides whether that is fatal.
+  Future<List<Map<String, dynamic>>?> _fetchRoster(
+      {List<int> include = const []}) async {
+    final query = include.isEmpty
+        ? ''
+        : '?${include.map((id) => 'include=$id').join('&')}';
     try {
       final resp = await http.get(
-          u('/attendance/backfill-roster/$_projectId/$_dateStr'),
+          u('/attendance/backfill-roster/$_projectId/$_dateStr$query'),
           headers: await authHeaders(json: false));
-      if (!mounted) return;
-      if (resp.statusCode == 200) {
-        final list = List<Map<String, dynamic>>.from(
-            jsonDecode(utf8.decode(resp.bodyBytes)));
-        setState(() {
-          for (final w in list) {
-            _rows[w['id']] = {
-              'name': w['name'],
-              // Prefill saved status for THIS obra, else blank (untouched)
-              'status': w['status'],
-              'extra_hours': w['extra_hours'] ?? 0,
-              'conflict': w['conflict_project_name'],
-            };
-          }
-          _loadingRoster = false;
-        });
-      } else {
-        setState(() => _loadingRoster = false);
-        _snack('No se pudo cargar la lista (HTTP ${resp.statusCode})',
-            error: true);
+      if (resp.statusCode != 200) {
+        if (mounted) {
+          _snack('No se pudo cargar la lista (HTTP ${resp.statusCode})',
+              error: true);
+        }
+        return null;
       }
+      return List<Map<String, dynamic>>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)));
     } catch (e) {
-      if (mounted) {
-        setState(() => _loadingRoster = false);
-        _snack('Error: $e', error: true);
-      }
+      if (mounted) _snack('Error: $e', error: true);
+      return null;
     }
+  }
+
+  /// Build one `_rows` entry from a roster row.
+  ///
+  /// The initial load and a manual add both go through here so the two cannot
+  /// drift apart — that drift is precisely what left manual adds with no
+  /// conflict marker while roster rows had one.
+  Map<String, dynamic> _rowFrom(Map<String, dynamic> w) => {
+        'name': w['name'],
+        // Prefill saved status for THIS obra, else blank (untouched)
+        'status': w['status'],
+        'extra_hours': w['extra_hours'] ?? 0,
+        'conflict': w['conflict_project_name'],
+        'photo_url': w['photo_url'],
+      };
+
+  /// Re-read conflicts from the server, updating ONLY that field.
+  ///
+  /// Deliberately does not touch `status` or `extra_hours`: those are the
+  /// user's unsaved work on this screen, and replacing them with the server's
+  /// older values would discard exactly what they are about to save.
+  Future<bool> _refreshConflicts(List<int> workerIds) async {
+    final list = await _fetchRoster(include: workerIds);
+    if (list == null || !mounted) return false;
+    final byId = <int, Map<String, dynamic>>{
+      for (final w in list) w['id'] as int: w
+    };
+    setState(() {
+      for (final entry in _rows.entries) {
+        final fresh = byId[entry.key];
+        // Assign even when null — a conflict that has since been resolved
+        // must clear, not linger.
+        if (fresh != null) {
+          entry.value['conflict'] = fresh['conflict_project_name'];
+        }
+      }
+    });
+    return true;
   }
 
   Future<void> _addWorker() async {
@@ -217,13 +263,39 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
       ),
     );
     if (picked != null) {
+      final id = picked['id'] as int;
+      // Ask the roster about this worker rather than guessing. It comes back
+      // carrying the same conflict fields a roster row has, which is the whole
+      // point: this used to insert `conflict: null` under a comment claiming
+      // manual adds were re-checked on save. No such re-check existed, so a
+      // hand-added worker who already had attendance on another obra that date
+      // was overwritten silently — attendance is last-write-wins on
+      // (worker_id, date).
+      final list = await _fetchRoster(include: [id]);
+      if (!mounted) return;
+      Map<String, dynamic>? match;
+      if (list != null) {
+        for (final w in list) {
+          if (w['id'] == id) {
+            match = w;
+            break;
+          }
+        }
+      }
       setState(() {
-        _rows[picked['id']] = {
-          'name': picked['name'],
-          'status': null,
-          'extra_hours': 0,
-          'conflict': null, // roster endpoint knows conflicts; manual adds re-check on save
-        };
+        // If the lookup failed, still add the worker from the picker's own
+        // data so the screen works offline — with no conflict information.
+        // _save re-checks before writing anything, so this cannot become a
+        // silent overwrite; it just defers the question.
+        _rows[id] = match != null
+            ? _rowFrom(match)
+            : {
+                'name': picked['name'],
+                'status': null,
+                'extra_hours': 0,
+                'conflict': null,
+                'photo_url': picked['photo_url'],
+              };
       });
     }
   }
@@ -238,7 +310,26 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
       return;
     }
 
-    // Warn once if any marked worker has a conflicting record on another obra
+    // Re-check conflicts against the server RIGHT NOW instead of trusting what
+    // the roster said when the screen loaded. Someone else may have recorded
+    // one of these workers on another obra in between, and this dialog is the
+    // only thing standing between a mis-tap and a silently moved attendance
+    // record — the server upserts last-write-wins on (worker_id, date) and
+    // keeps no audit trail of the move.
+    //
+    // Blocking on failure is deliberate: saving with unverified conflicts is
+    // the exact bug being fixed here.
+    final verified = await _refreshConflicts(marked.map((e) => e.key).toList());
+    if (!mounted) return;
+    if (!verified) {
+      _snack('No se pudo verificar duplicados. Revisa tu conexión '
+          'e intenta de nuevo.', error: true);
+      return;
+    }
+
+    // Warn once if any marked worker has a conflicting record on another obra.
+    // `marked` holds references to the same maps _refreshConflicts just
+    // updated, so this reads the fresh values.
     final conflicts = marked.where((e) => e.value['conflict'] != null).toList();
     if (conflicts.isNotEmpty) {
       final names = conflicts
@@ -307,8 +398,9 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
     }
   }
 
-  /// One worker, in the daily screen's card design. The roster carries no
-  /// photo, so these always show initials.
+  /// One worker, in the daily screen's card design. The roster now returns
+  /// `photo_url` (already signed), so these show faces and fall back to
+  /// initials only when a worker genuinely has no photo.
   Widget _buildCard(int workerId, Map<String, dynamic> row) {
     final name = (row['name'] ?? '').toString();
     final status = row['status']?.toString();
@@ -328,7 +420,11 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
               Expanded(
                 flex: 2,
                 child: AttendancePhotoHeader(
-                  photoUrl: null,
+                  // Passed raw, exactly as screen_record_attendance feeds the
+                  // same widget: the server returns an absolute signed URL and
+                  // AttendancePhotoHeader hands it straight to
+                  // CachedNetworkImage.
+                  photoUrl: row['photo_url']?.toString(),
                   initials: attendanceInitials(name),
                 ),
               ),
