@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
@@ -7,7 +8,6 @@ import 'package:control_app/api.dart';
 import 'screen_project_selection.dart' show resolvePhotoUrl;
 import 'screen_logbook.dart';
 import 'screen_catalog.dart';
-import 'screen_project_form.dart';
 import 'screen_record_attendance.dart';
 import 'utils/launchers.dart';
 
@@ -25,6 +25,7 @@ class ProjectDetailScreen extends StatefulWidget {
 class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
   late Map<String, dynamic> project;
   bool _canWrite = false;
+  bool _uploadingPdf = false;
 
   @override
   void initState() {
@@ -63,6 +64,110 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
       }
     } catch(_) {
     }
+  }
+
+  /// Uploads a catalog PDF and writes it onto the project, in place.
+  ///
+  /// ⚠ **There are TWO writers of `catalog_pdf` in this client.** This one is
+  /// the quick path for the empty case — one tap, no navigation. The other is
+  /// `_payload()` in `screen_project_form.dart`, which handles add *and*
+  /// replace. **Change the PUT payload in one and check the other**: both
+  /// carry the same full-replace echo, so a field dropped here and not there
+  /// wipes a column from one entry point and not the other, which is a
+  /// miserable bug to track down.
+  ///
+  /// The form's picker was historically declared but never wired up
+  /// (`_pickedCatalog` assigned nowhere), so this card used to navigate to a
+  /// screen that could not add a PDF. If you ever reduce this back to one
+  /// writer, delete the loser rather than leaving it inert.
+  Future<void> _addCatalogPdf() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+    );
+    final path = picked?.files.single.path;
+    if (path == null) return; // cancelled, or no readable path
+
+    if (!mounted) return;
+    setState(() => _uploadingPdf = true);
+    try {
+      // Trailing slash is load-bearing: the route is /upload-catalog/. Without
+      // it FastAPI answers 307 and the redirect drops the Authorization
+      // header, so the upload 401s.
+      final req = http.MultipartRequest('POST', u('/upload-catalog/'));
+      req.headers.addAll(await authHeaders(json: false));
+      req.files.add(await http.MultipartFile.fromPath('file', path));
+      final resp = await req.send();
+      if (resp.statusCode != 200) {
+        if (!mounted) return;
+        setState(() => _uploadingPdf = false);
+        _snackError('Error al subir el catálogo');
+        return;
+      }
+      final filename =
+          jsonDecode(await resp.stream.bytesToString())['filename'];
+
+      // PUT /projects/{id} is a FULL REPLACE for every column except
+      // photo_url and catalog_pdf, which are COALESCE-protected. Everything
+      // else must be echoed back or it is wiped.
+      //
+      //   progress        — GET returns the COMPUTED weighted value, which is
+      //                     null when the obra has no priced catalog.
+      //                     ProjectUpdate.progress is a required non-nullable
+      //                     float, so echoing null is a 422. 0.6 mirrors the
+      //                     form's default: a known wart, not fixed here.
+      //   contract_amount — the server omits the key entirely for non-admins,
+      //                     so this is null for them, and update_project
+      //                     preserves the stored value on a non-admin write.
+      //                     No client-side guard belongs here.
+      //   photo_url       — arrives as a signed absolute URL carrying
+      //                     ?exp=&sig=. Echoed verbatim; the server runs
+      //                     _normalize_photo_filename() on write, which strips
+      //                     host and query. Do not strip anything here.
+      final put = await http.put(
+        u('/projects/${project['id']}'),
+        headers: await authHeaders(),
+        body: jsonEncode({
+          'catalog_pdf': filename,
+          'name': project['name'] ?? '',
+          'address': project['address'] ?? '',
+          'status': project['status'] ?? 'EN PROCESO',
+          'progress': project['progress'] ?? 0.6,
+          'photo_url': project['photo_url'],
+          'contract_name': project['contract_name'],
+          'contract_number': project['contract_number'],
+          'client_name': project['client_name'],
+          'contract_amount': project['contract_amount'],
+          'encargado_username': project['encargado_username'],
+          'start_date': project['start_date'],
+          'end_date': project['end_date'],
+        }),
+      );
+      if (!mounted) return;
+      if (put.statusCode == 401 || put.statusCode == 403) {
+        setState(() => _uploadingPdf = false);
+        _snackError('No tienes permiso para editar esta obra');
+        return;
+      }
+      if (put.statusCode != 200) {
+        setState(() => _uploadingPdf = false);
+        _snackError('Error al guardar (HTTP ${put.statusCode})');
+        return;
+      }
+      await _refreshProject();
+      if (!mounted) return;
+      setState(() => _uploadingPdf = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _uploadingPdf = false);
+      _snackError('Error: $e');
+    }
+  }
+
+  void _snackError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.red[700]),
+    );
   }
 
   @override
@@ -107,6 +212,8 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
                 project: project,
                 onRefresh: _refreshProject,
                 canWrite: _canWrite,
+                uploadingPdf: _uploadingPdf,
+                onAddPdf: _addCatalogPdf,
               ),
               CatalogTab(project: project),
               LogbookTab(project: project),
@@ -125,11 +232,15 @@ class _InfoTab extends StatelessWidget {
   final Map<String, dynamic> project;
   final Future<void> Function() onRefresh;
   final bool canWrite;
+  final bool uploadingPdf;
+  final Future<void> Function() onAddPdf;
 
   const _InfoTab({
     required this.project,
     required this.onRefresh,
     required this.canWrite,
+    required this.uploadingPdf,
+    required this.onAddPdf,
   });
 
   String _fmtDate(String? iso) {
@@ -373,17 +484,12 @@ class _InfoTab extends StatelessWidget {
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: ListTile(
-              // Adding goes through the existing edit form — the one place
-              // that uploads to /upload-catalog/ and writes the project.
-              onTap: () async {
-                final saved = await Navigator.push<bool>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ProjectFormScreen(projectToEdit: project),
-                  ),
-                );
-                if (saved == true) onRefresh();
-              },
+              // Uploads in place — no navigation. Only shown while
+              // catalog_pdf is null; replacing an existing one is done from
+              // the edit form, which is the other writer. This used to push
+              // ProjectFormScreen back when the form's picker was never wired
+              // up, so the "+" opened a screen that could not add a PDF.
+              onTap: uploadingPdf ? null : onAddPdf,
               leading: Icon(Icons.picture_as_pdf_outlined,
                   color: Colors.grey[500], size: 28),
               title: Text(
@@ -403,8 +509,14 @@ class _InfoTab extends StatelessWidget {
                     fontStyle: FontStyle.italic,
                     color: Colors.grey[500]),
               ),
-              trailing: const Icon(Icons.add_circle_outline,
-                  color: Color(0xFF1C1CF0)),
+              trailing: uploadingPdf
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add_circle_outline,
+                      color: Color(0xFF1C1CF0)),
             ),
           ),
         ],
