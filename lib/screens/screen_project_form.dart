@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -98,6 +99,22 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
     return null;
   }
 
+  /// Picks a PDF and stages it. Nothing is uploaded until save, so cancelling
+  /// out of the form leaves the stored catalog untouched.
+  ///
+  /// The extension filter is not cosmetic: the server's CATALOG_EXTENSIONS is
+  /// {"pdf"} and `_stored_filename` raises a 400 on anything else.
+  Future<void> _pickCatalog() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+    );
+    final path = picked?.files.single.path;
+    if (path == null) return; // cancelled, or no readable path
+    if (!mounted) return;
+    setState(() => _pickedCatalog = File(path));
+  }
+
   Future<String?> _uploadCatalog(File pdfFile) async {
     // Trailing slash matters: the route is /upload-catalog/. Without it the
     // 307 redirect drops the Authorization header and the request 401s.
@@ -112,6 +129,10 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
     return null;
   }
 
+  /// Deletes a media file by URL. Used for the replaced photo AND the replaced
+  /// catalog PDF — `_normalize_photo_filename` on the server means one endpoint
+  /// covers both. Signed URLs are handled correctly without stripping anything:
+  /// `?exp=&sig=` are query params, so they never appear in `pathSegments`.
   Future<void> _deleteOldImage(String? photoUrl) async {
     if (photoUrl == null || photoUrl.isEmpty) return;
     try {
@@ -128,10 +149,22 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
     }
   }
 
+  /// ⚠ **There are TWO writers of `catalog_pdf` in this client** — this form
+  /// (add and replace) and the info-tab card in `screen_project.dart` (add
+  /// only, inline). Both must keep echoing every PUT field, because
+  /// `PUT /projects/{id}` is a full replace for every column except
+  /// `photo_url` and `catalog_pdf`. Change the payload here and check there.
+  ///
+  /// `catalog_pdf` is passed straight through as `catalogFilename`, **null when
+  /// the user did not pick a new PDF** — and null is the correct value to send,
+  /// not an oversight: `update_project` does
+  /// `catalog_pdf = COALESCE(%s, catalog_pdf)`, so null preserves the stored
+  /// filename, and `create_project` inserts NULL, which is right for a new
+  /// obra. Do not "fix" it by echoing `p?['catalog_pdf']`.
   Map<String, dynamic> _payload(String? photoFilename, String? catalogFilename) {
     final p = widget.projectToEdit;
     return {
-      'catalog_pdf': catalogFilename ?? p?['catalog_pdf'],
+      'catalog_pdf': catalogFilename,
       'name': _nameController.text.trim(),
       'address': _addressController.text.trim(),
       'status': p?['status'] ?? 'EN PROCESO',
@@ -257,6 +290,10 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
       if (isEditing && photoFilename != null) {
         await _deleteOldImage(widget.projectToEdit!['photo_url']);
       }
+      // Same treatment for a replaced catalog: the new filename is already
+      // committed, so the old file is unreferenced and — since signed URLs are
+      // built from the stored value — unreachable. Deleting it after the save,
+      // never before, keeps a failed PUT from destroying the only copy.
       if (isEditing && catalogFilename != null) {
         await _deleteOldImage(widget.projectToEdit!['catalog_pdf']);
       }
@@ -421,6 +458,61 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
                     ),
                   ],
                 ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // ---------- Catálogo PDF ----------
+            // Add or replace. The info-tab card in screen_project.dart also
+            // adds one, inline, for the empty case — two writers on purpose.
+            _SectionCard(
+              title: 'CATÁLOGO PDF',
+              children: [
+                Builder(builder: (context) {
+                  final existing =
+                      resolvePhotoUrl(widget.projectToEdit?['catalog_pdf']);
+                  final hasNew = _pickedCatalog != null;
+                  final hasAny = hasNew || existing != null;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    onTap: _isSaving ? null : _pickCatalog,
+                    leading: Icon(
+                      hasAny
+                          ? Icons.picture_as_pdf
+                          : Icons.picture_as_pdf_outlined,
+                      color: hasAny
+                          ? const Color(0xFF1C1CF0)
+                          : Colors.grey[500],
+                      size: 28,
+                    ),
+                    title: Text(
+                      hasNew
+                          ? _pickedCatalog!.path.split(Platform.pathSeparator).last
+                          : (existing != null
+                              ? 'DOCUMENTO CARGADO'
+                              : 'SIN CATÁLOGO'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        fontStyle:
+                            hasAny ? FontStyle.normal : FontStyle.italic,
+                        color: hasAny ? Colors.black87 : Colors.grey[500],
+                      ),
+                    ),
+                    subtitle: Text(
+                      hasNew
+                          ? 'SE SUBIRÁ AL GUARDAR'
+                          : (existing != null
+                              ? 'TOCA PARA REEMPLAZAR'
+                              : 'TOCA PARA AGREGAR'),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    trailing: Icon(
+                      hasNew ? Icons.check_circle : Icons.upload_file,
+                      color: hasNew ? Colors.green[700] : Colors.grey[600],
+                    ),
+                  );
+                }),
               ],
             ),
             const SizedBox(height: 12),
