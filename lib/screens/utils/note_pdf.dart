@@ -362,9 +362,14 @@ pw.Page _coverPage({
     if (d != null) dates.add(d);
   }
   dates.sort();
+  // 'a', not an em dash. The built-in Helvetica is Latin-1 ONLY
+  // (isRuneSupported is charCode <= 0xff), and U+2014 is past that, so it
+  // renders as a placeholder box — silently, because the package's warning
+  // sits inside an assert and therefore never fires in a release build.
+  // See the guard test in test/pdf_latin1_only_test.dart.
   final range = dates.isEmpty
-      ? '—'
-      : '${DateFormat('dd/MM/yyyy').format(dates.first)}  —  '
+      ? '-'
+      : '${DateFormat('dd/MM/yyyy').format(dates.first)} a '
           '${DateFormat('dd/MM/yyyy').format(dates.last)}';
 
   return pw.Page(
@@ -472,8 +477,9 @@ pw.Widget _letterhead(Uint8List? logo, String projectName) {
 pw.Widget _metaRow(dynamic folio, String date) {
   return pw.Row(
     children: [
-      pw.Expanded(child: _labelled('NOTA', folio != null ? '$folio' : '—')),
-      pw.Expanded(child: _labelled('FECHA', date.isEmpty ? '—' : date)),
+      // ASCII hyphen, not an em dash — see the note on `range` in _coverPage.
+      pw.Expanded(child: _labelled('NOTA', folio != null ? '$folio' : '-')),
+      pw.Expanded(child: _labelled('FECHA', date.isEmpty ? '-' : date)),
     ],
   );
 }
