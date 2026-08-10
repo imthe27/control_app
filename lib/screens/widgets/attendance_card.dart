@@ -4,25 +4,72 @@ import 'package:flutter/material.dart';
 // Shared pieces of the attendance card, used by the daily screen
 // (screen_record_attendance) and REGISTRO PASADO (screen_backfill_attendance).
 //
-// Only the parts that must look identical live here. Each screen keeps its own
-// status affordance: the daily screen toggles presente/falta on tap, while
-// backfill picks from 1 / 0.5 / 0 / F and can leave a worker unmarked. That
-// difference is real; the shell, the photo header, the hours strip and the
-// V/INC watermark are not, and a copy of them would drift.
+// Only the parts that must look identical live here. Both screens now use the
+// same affordance — tap the card to change status, extra hours on the strip
+// below — and the one real difference left is that backfill can leave a worker
+// UNMARKED, which is how it avoids writing attendance for a whole past-day
+// roster. The shell, the photo header, the hours strip and the V/INC watermark
+// are shared; a copy of them would drift.
 
 const Color kAttendanceBlue = Color(0xFF1C1CF0);
 
 /// Statuses rendered read-only wherever they appear. Nothing in the app can
-/// SET them any more — the long-press selection that did was removed, and
-/// backfill no longer offers them either — but historical rows still carry
-/// them. 'INC' and 'I' are both here on purpose: the daily screen historically
-/// wrote 'INC' while backfill wrote 'I', and the backend validates neither, so
-/// both spellings exist in the data. Match both or such a row renders as a
-/// plain absence.
-const Set<String> kSpecialAttendanceStatuses = {'V', 'INC', 'I'};
+/// SET them — the long-press selection that did was removed, and backfill never
+/// offered them.
+///
+/// They arrive from the server, which now keeps vacaciones and incapacidad in
+/// their own records and merges them into every attendance read. So a card can
+/// show V or INC on a day with no saved attendance at all, and it must render
+/// read-only: the value is not this screen's to change.
+///
+/// This is the single definition of "this status is not editable" — the daily
+/// screen and REGISTRO PASADO both lock their card through
+/// [isSpecialAttendanceStatus], and the daily screen's save path drops these
+/// workers from its payload with the same test. Do not add a second V/INC
+/// comparison anywhere; add to this set instead.
+///
+/// 'I' was a third member until 2026-08-10, on the stated grounds that the old
+/// backfill screen wrote 'I' while the daily screen wrote 'INC' and "both
+/// spellings exist in the data". That was never verified and was false:
+/// `SELECT COUNT(*) FROM attendance WHERE status = 'I'` returned 0 after the
+/// phase-13 migration, the server now coerces 'I' to 'INC' on the way in, and
+/// no read path can emit it. Removed rather than kept as a guard, so this set
+/// describes what the API actually returns.
+const Set<String> kSpecialAttendanceStatuses = {'V', 'INC'};
 
 bool isSpecialAttendanceStatus(String? status) =>
     status != null && kSpecialAttendanceStatuses.contains(status);
+
+/// Days that are not a normal pay day: no attendance is recorded, only extra
+/// hours. A worked Sunday is status '0' with extra_hours > 0 — there is no new
+/// status value for it and the backend needs no change.
+///
+/// Named for the general concept so festivos can join later. **Today it is
+/// Sunday and nothing else** — holiday handling is deliberately not here.
+///
+/// `DateTime.weekday` runs 1..7 with **Sunday == 7**, not 0. `weekday == 0`
+/// compiles, matches nothing, and would leave this silently switched off on
+/// every day of the week, so the constant is used rather than a literal.
+bool isNonWorkingDay(DateTime date) => date.weekday == DateTime.sunday;
+
+/// The only status a non-working day can carry. On a Sunday there is no
+/// "presente" — just ausente plus whatever hours were worked.
+///
+/// Both write screens offer exactly this list on such a day, and both coerce a
+/// stored '1' or '0.5' into it rather than letting one be re-saved.
+const List<String> kNonWorkingDayStatuses = ['0'];
+
+/// The notice both write screens put in their date header on a non-working day.
+///
+/// One string in one place. A screen whose behaviour changes with no
+/// explanation reads as broken: an encargado who finds that "presente" has
+/// stopped working either reports a bug or stops recording Sundays entirely,
+/// which loses the extra hours — the only thing a Sunday is for.
+///
+/// It deliberately does not say "no se paga". What gets paid is a payroll
+/// question; this states only what the app does.
+const String kNonWorkingDayNotice =
+    'DOMINGO — NO SE REGISTRA ASISTENCIA, SOLO HORAS EXTRA';
 
 /// One ink colour for both watermarks. V and INC/I are told apart by the icon
 /// and the label, not by hue — a coloured icon on a greyed-out card reads as
@@ -142,28 +189,82 @@ class AttendanceNameBlock extends StatelessWidget {
 }
 
 /// Green tick shown when the worker is marked present.
+/// Three states, because backfill has three.
+///
+/// `true` presente · `false` ausente · **`null` sin marcar**.
+///
+/// The null case exists for REGISTRO PASADO, which saves only the rows that
+/// were actually marked. Without a distinct look for it, "ausente" and
+/// "untouched" render identically and the user cannot tell which rows the save
+/// will write — the tap cycle back to unmarked would be invisible.
+///
+/// The daily screen passes a plain bool and is unaffected: it has no unmarked
+/// state, since it always sends every worker on the obra.
 class AttendancePresentBadge extends StatelessWidget {
-  final bool isPresent;
+  final bool? isPresent;
 
   const AttendancePresentBadge({super.key, required this.isPresent});
 
   @override
   Widget build(BuildContext context) {
+    final present = isPresent == true;
+    final unmarked = isPresent == null;
     return Container(
       width: 26,
       height: 26,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isPresent ? Colors.green : Colors.white.withValues(alpha: 0.85),
+        color: present ? Colors.green : Colors.white.withValues(alpha: 0.85),
         border: Border.all(
-          color: isPresent ? Colors.green : Colors.grey[400]!,
+          color: present ? Colors.green : Colors.grey[400]!,
           width: 1.5,
         ),
       ),
+      // A dash rather than an empty circle: an empty corner reads as a
+      // rendering fault, the same reason the non-working badge says DOM
+      // instead of hiding itself.
       child: Icon(
-        Icons.check,
+        unmarked ? Icons.remove : Icons.check,
         size: 16,
-        color: isPresent ? Colors.white : Colors.grey[400],
+        color: present ? Colors.white : Colors.grey[400],
+      ),
+    );
+  }
+}
+
+/// Replaces [AttendancePresentBadge] on a non-working day.
+///
+/// The present badge is a check that is green or grey. On a Sunday every card
+/// is '0' by rule, so it would be grey on every card and read "everyone was
+/// absent" — the exact opposite of the point, since Sunday is the day the
+/// extra hours ARE the record. Hiding it instead leaves an empty corner that
+/// reads as a rendering fault, so the corner says what the day is.
+class AttendanceNonWorkingBadge extends StatelessWidget {
+  /// Short enough for a card corner. The date header carries the full
+  /// explanation; this only has to stop the corner from lying.
+  final String label;
+
+  const AttendanceNonWorkingBadge({super.key, this.label = 'DOM'});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE65100),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -310,9 +411,10 @@ class _AttendanceHoursStripState extends State<AttendanceHoursStrip> {
   }
 }
 
-/// Full-card overlay for V / INC / I. Nothing in the app sets these any more,
-/// but historical rows carry them, so every screen that shows attendance has
-/// to render them — greyed out and inert.
+/// Full-card overlay for V / INC. No attendance screen sets these; they are
+/// created on the AUSENCIAS screen and the server merges them into the `status`
+/// of every attendance read, so any screen showing attendance has to render
+/// them — greyed out and inert.
 class AttendanceStatusWatermark extends StatelessWidget {
   final String status;
 
@@ -323,7 +425,6 @@ class AttendanceStatusWatermark extends StatelessWidget {
       case 'V':
         return 'VACACIONES';
       case 'INC':
-      case 'I':
         return 'INCAPACITADO';
       default:
         return '';

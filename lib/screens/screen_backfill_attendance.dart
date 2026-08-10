@@ -33,15 +33,54 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
   bool _loadingRoster = false;
   bool _saving = false;
 
-  /// presente / medio día / falta / festivo.
+  /// The tap cycle: presente → ausente → sin marcar → presente.
   ///
-  /// V (vacaciones) and I (incapacidad) are deliberately absent: nothing in the
-  /// app sets them any more. Rows that already carry one still render, greyed
-  /// out and inert, the same as on the daily screen.
-  static const _statuses = ['1', '0.5', '0', 'F'];
+  /// This screen used to offer four chips — 1 / 0.5 / 0 / F. It now matches the
+  /// daily screen: tap the card to change status, hours on the strip below.
+  ///
+  /// **'0.5' (medio día) and 'F' (festivo) are parked, not deleted.** Nothing
+  /// in the app sets either one any more; both return together with half-day
+  /// handling. Rows already carrying them are NOT destroyed — the cycle can
+  /// clear such a row to "sin marcar", and an unmarked row is simply not sent,
+  /// so the stored value stays as it is. The backend still accepts all four.
+  ///
+  /// V (vacaciones) and INC (incapacidad) are set from the AUSENCIAS screen
+  /// (`screen_absences.dart`, admin-only), stored as their own records, and
+  /// merged by the server into the `status` of every attendance read including
+  /// this roster. A row can arrive carrying one; it renders greyed out and
+  /// inert and the tap does nothing, so saving never sends it back.
+  ///
+  /// On a non-working day 'presente' leaves the cycle entirely — see
+  /// [_nextStatus] and [kNonWorkingDayStatuses].
+  String? _nextStatus(String? current) {
+    if (_nonWorking) {
+      // Sunday: ausente ↔ sin marcar. There is no presente to cycle through.
+      return current == kNonWorkingDayStatuses.first
+          ? null
+          : kNonWorkingDayStatuses.first;
+    }
+    if (current == null) return '1';
+    if (current == '1') return '0';
+    // '0', or a parked value ('0.5'/'F') this screen can no longer produce:
+    // clear it to unmarked rather than pretending to know the next step.
+    return null;
+  }
 
-  /// Statuses that can carry extra hours.
-  static const _hourlyStatuses = {'1', '0.5'};
+  // There used to be a _hourlyStatuses = {'1', '0.5'} guard here: choosing any
+  // status outside it wiped extra_hours to 0 mid-edit. On a Sunday — where the
+  // status must be ausente — that meant an encargado entered six hours,
+  // changed the status, and watched the hours silently become 0 with no error
+  // and no indication. The hours are the only thing a Sunday records.
+  //
+  // Extra hours are now enterable on every status, matching the daily screen.
+  // That leaves "ausente with six hours" enterable on a Tuesday too; known and
+  // accepted, not an oversight. The constant was deleted rather than widened
+  // to the full set, because a guard that contains everything is not a guard.
+  //
+  // One visible consequence: cycling a row back to "sin marcar" no longer
+  // clears the hours from the display. The row is not saved either way — _save
+  // sends only rows with a non-null status — so nothing is written, but the
+  // hours stay on screen until the roster reloads.
 
   @override
   void initState() {
@@ -147,11 +186,34 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
   Map<String, dynamic> _rowFrom(Map<String, dynamic> w) => {
         'name': w['name'],
         // Prefill saved status for THIS obra, else blank (untouched)
-        'status': w['status'],
+        'status': _coerceStatus(w['status']?.toString()),
         'extra_hours': w['extra_hours'] ?? 0,
         'conflict': w['conflict_project_name'],
         'photo_url': w['photo_url'],
       };
+
+  /// True when the date being backfilled is not a normal pay day.
+  bool get _nonWorking => _date != null && isNonWorkingDay(_date!);
+
+  /// A stored status, after the non-working-day rule.
+  ///
+  /// There is no "presente" on a Sunday, so a '1' or '0.5' already saved
+  /// against one is shown — and re-saved — as ausente. Unlike the daily
+  /// screen, there is no read-only case to exempt: this screen exists to
+  /// correct past days, so coercing here is the enforcement.
+  ///
+  /// Absences are never coerced: V/INC are the server's record of an approved
+  /// absence, and this screen does not set or unset them.
+  ///
+  /// `null` stays `null` — an untouched row is not a mark, and _save only
+  /// sends rows whose status is non-null.
+  String? _coerceStatus(String? stored) {
+    if (stored == null || !_nonWorking) return stored;
+    if (isSpecialAttendanceStatus(stored)) return stored;
+    return kNonWorkingDayStatuses.contains(stored)
+        ? stored
+        : kNonWorkingDayStatuses.first;
+  }
 
   /// Re-read conflicts from the server, updating ONLY that field.
   ///
@@ -408,79 +470,95 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
     final hours = (row['extra_hours'] ?? 0).toString();
     final conflict = row['conflict'];
 
-    return Container(
-      // Keyed by worker so the hours strip's scroll position follows its own
-      // worker when the roster changes, instead of being matched by position.
-      key: ValueKey(workerId),
-      decoration: attendanceCardDecoration(special),
-      child: Stack(
-        children: [
-          Column(
-            children: [
-              Expanded(
-                flex: 2,
-                child: AttendancePhotoHeader(
-                  // Passed raw, exactly as screen_record_attendance feeds the
-                  // same widget: the server returns an absolute signed URL and
-                  // AttendancePhotoHeader hands it straight to
-                  // CachedNetworkImage.
-                  photoUrl: row['photo_url']?.toString(),
-                  initials: attendanceInitials(name),
+    return GestureDetector(
+      // Same affordance as the daily screen. V/INC rows are inert.
+      onTap: special
+          ? null
+          : () => setState(() => row['status'] = _nextStatus(status)),
+      child: Container(
+        // Keyed by worker so the hours strip's scroll position follows its own
+        // worker when the roster changes, instead of being matched by position.
+        key: ValueKey(workerId),
+        decoration: attendanceCardDecoration(special),
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: AttendancePhotoHeader(
+                    // Passed raw, exactly as screen_record_attendance feeds the
+                    // same widget: the server returns an absolute signed URL
+                    // and AttendancePhotoHeader hands it straight to
+                    // CachedNetworkImage.
+                    photoUrl: row['photo_url']?.toString(),
+                    initials: attendanceInitials(name),
+                  ),
                 ),
-              ),
-              Expanded(
-                flex: 1,
-                child: AttendanceNameBlock(name: name),
-              ),
-              Expanded(
-                flex: 1,
-                child: _StatusSegments(
-                  value: status,
-                  options: _statuses,
-                  enabled: !special,
-                  onChanged: (v) => setState(() {
-                    row['status'] = v;
-                    if (!_hourlyStatuses.contains(v)) row['extra_hours'] = 0;
-                  }),
+                Expanded(
+                  flex: 1,
+                  child: AttendanceNameBlock(name: name),
                 ),
-              ),
-              Expanded(
-                flex: 1,
-                child: AttendanceHoursStrip(
-                  value: hours,
-                  enabled: !special && _hourlyStatuses.contains(status),
-                  isSpecial: special,
-                  onChanged: (h) => setState(() => row['extra_hours'] = h),
+                Expanded(
+                  flex: 1,
+                  child: AttendanceHoursStrip(
+                    value: hours,
+                    // Hours no longer depend on the status. On a non-working
+                    // day that is the whole point; on a normal one it matches
+                    // the daily screen.
+                    enabled: !special,
+                    isSpecial: special,
+                    onChanged: (h) => setState(() {
+                      row['extra_hours'] = h;
+                      // On a non-working day, entering hours IS the mark.
+                      // _save only sends rows whose status is non-null, so
+                      // without this an encargado who types six hours and
+                      // never taps the card would have the row silently
+                      // dropped — the same data loss the old hours wipe
+                      // caused, moved further down the file. Doing it here
+                      // rather than at save time means the badge visibly
+                      // changes, so the mark is not invisible.
+                      if (_nonWorking && (double.tryParse(h) ?? 0) > 0) {
+                        row['status'] ??= kNonWorkingDayStatuses.first;
+                      }
+                    }),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          Positioned(
-            top: 8,
-            left: 8,
-            child: AttendancePresentBadge(isPresent: status == '1'),
-          ),
-          if (conflict != null)
+              ],
+            ),
             Positioned(
               top: 8,
-              right: 8,
-              child: Tooltip(
-                message: 'Ya registrado en $conflict',
-                child: Container(
-                  width: 26,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.orange[800],
-                    border: Border.all(color: Colors.white, width: 1.5),
+              left: 8,
+              // null (sin marcar) is a real third state here and must look
+              // different from ausente, or the tap cycle is invisible and the
+              // user cannot tell which rows the save will write.
+              child: _nonWorking
+                  ? const AttendanceNonWorkingBadge()
+                  : AttendancePresentBadge(
+                      isPresent: status == null ? null : status == '1'),
+            ),
+            if (conflict != null)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Tooltip(
+                  message: 'Ya registrado en $conflict',
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.orange[800],
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: const Icon(Icons.warning_amber,
+                        size: 16, color: Colors.white),
                   ),
-                  child: const Icon(Icons.warning_amber,
-                      size: 16, color: Colors.white),
                 ),
               ),
-            ),
-          if (special) AttendanceStatusWatermark(status: status!),
-        ],
+            if (special) AttendanceStatusWatermark(status: status!),
+          ],
+        ),
       ),
     );
   }
@@ -534,7 +612,10 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
               crossAxisCount: 2,
               // Taller than the daily card: this one carries a status row the
               // daily screen does not have.
-              childAspectRatio: 0.56,
+              // Matches the daily screen. It was 0.56 while the card carried a
+              // fourth row of status chips; without them the taller card just
+              // stretches the photo.
+              childAspectRatio: 0.7,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
             ),
@@ -642,6 +723,33 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
               ),
             ),
 
+            // ---------- Non-working-day notice ----------
+            // Full width, under the pickers rather than inside the date chip:
+            // that chip shares a Row with the obra dropdown and has no room.
+            if (_nonWorking)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE65100),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    kNonWorkingDayNotice,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ),
+
             // ---------- Roster ----------
             Expanded(
               child: !ready
@@ -686,72 +794,6 @@ class _BackfillAttendanceScreenState extends State<BackfillAttendanceScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Compact status picker sized for a grid card.
-///
-/// The daily screen toggles between two states on tap; backfill needs four,
-/// plus "not marked at all" — no segment selected. That null is what keeps an
-/// untouched worker out of the save, so tapping the selected segment clears it
-/// rather than leaving the row stuck on a value nobody chose.
-class _StatusSegments extends StatelessWidget {
-  final String? value;
-  final List<String> options;
-  final bool enabled;
-  final ValueChanged<String?> onChanged;
-
-  const _StatusSegments({
-    required this.value,
-    required this.options,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: Row(
-        children: options.map((opt) {
-          final selected = value == opt;
-          return Expanded(
-            child: GestureDetector(
-              onTap: enabled ? () => onChanged(selected ? null : opt) : null,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  color: selected ? kAttendanceBlue : Colors.white,
-                  border: Border.all(
-                    color: selected ? Colors.yellow : Colors.grey[300]!,
-                    width: selected ? 1.5 : 0.5,
-                  ),
-                ),
-                child: Center(
-                  // Keeps '0.5' legible when the system font scale is large,
-                  // instead of overflowing a fixed-width segment.
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: Text(
-                        opt,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: selected ? Colors.white : Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
       ),
     );
   }

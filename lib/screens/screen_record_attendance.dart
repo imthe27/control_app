@@ -130,9 +130,31 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
     setState(() => isSaving = true);
 
     try {
-      final attendancePayload = selectedWorkers.map((worker) {
+      // Workers on vacaciones/incapacidad are dropped from the payload
+      // entirely — not sent with their current status, not sent at all.
+      //
+      // This screen builds its payload from EVERY worker on the obra with
+      // `?? '0'` as the fallback, not just the ones that were tapped. A worker
+      // whose status came back 'V' from the server's merge only round-tripped
+      // because loadAttendanceForDate happened to populate the map; if a
+      // worker joins the roster after that load, SAVE would post '0' over
+      // their absence.
+      //
+      // isSpecialAttendanceStatus is the test on purpose — it is the single
+      // definition of "not editable", already used by the card to lock the
+      // tap. The save path simply never consulted it.
+      //
+      // NOTE this does not cover a FAILED load: build() then fills the map
+      // with '0' for everyone, so there is no 'V' here to detect. That case is
+      // covered server-side, where save_attendance skips writes that would
+      // shadow an absence and reports how many in `skipped_absence`.
+      final attendancePayload = selectedWorkers
+          .where((worker) => !isSpecialAttendanceStatus(
+              allAttendance[todayKey]?[worker['name']]))
+          .map((worker) {
         final name = worker['name'] as String;
-        final status = allAttendance[todayKey]![worker['name']] ?? '0';
+        final status =
+            _effectiveStatus(allAttendance[todayKey]![worker['name']] ?? '0');
         final extraTxt = (allExtras[todayKey]![name] ?? '0').replaceAll(',', '.');
         final extra = double.tryParse(extraTxt) ?? 0.0;
 
@@ -167,6 +189,28 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
     } finally {
       setState(() => isSaving = false);
     }
+  }
+
+  /// The status to SHOW and to SEND for a worker, after the non-working-day
+  /// rule. Display and payload go through this one method so the card cannot
+  /// show one thing and the save write another.
+  ///
+  /// On a Sunday there is no "presente", so a stored '1' or '0.5' collapses to
+  /// '0'. Two things are deliberately exempt:
+  ///
+  ///  - **Absences.** V/INC are the server's record of an approved absence,
+  ///    not this screen's to rewrite.
+  ///  - **Past days.** This screen doubles as a read-only viewer for them, and
+  ///    a viewer that rewrites what it displays is lying about the database.
+  ///    Past Sundays are corrected from REGISTRO PASADO, which enforces the
+  ///    same rule on a path that is actually editable.
+  String _effectiveStatus(String stored) {
+    if (_isPastDay) return stored;
+    if (!isNonWorkingDay(selectedDate)) return stored;
+    if (isSpecialAttendanceStatus(stored)) return stored;
+    return kNonWorkingDayStatuses.contains(stored)
+        ? stored
+        : kNonWorkingDayStatuses.first;
   }
 
   void _pickDate() async {
@@ -335,13 +379,19 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                     if (!mounted) return;
                     setState(() {
                       final todayKey = _formatDate(selectedDate);
-                      allAttendance[todayKey] ??= {};
                       allExtras[todayKey] ??= {};
                       for (final n in names) {
-                        allAttendance[todayKey]![n] = '0';
                         allExtras[todayKey]![n] = '0';
                       }
                     });
+                    // Re-read instead of stamping '0' over the moved workers.
+                    // Seeding them locally was the same clobber as the save
+                    // payload: a transferred worker on vacaciones had their
+                    // merged 'V' overwritten with '0', so the card came back
+                    // unmarked and tappable. Re-fetching gets the merge back
+                    // rather than merely not making it worse.
+                    await loadAttendanceForDate();
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                           content: Text(
@@ -459,14 +509,32 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.grey[300]!),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _formatDate(selectedDate),
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDate(selectedDate),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                          ),
+                          const Icon(Icons.calendar_today),
+                        ],
                       ),
-                      const Icon(Icons.calendar_today),
+                      if (isNonWorkingDay(selectedDate)) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          kNonWorkingDayNotice,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange[900],
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -492,7 +560,8 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                         (context, index) {
                           final worker = selectedWorkers[index];
                           final name = worker['name'] as String;
-                          final status = allAttendance[todayKey]![name] ?? '0';
+                          final status = _effectiveStatus(
+                              allAttendance[todayKey]![name] ?? '0');
 
                           return _AttendanceCard(
                             worker: worker,
@@ -500,6 +569,7 @@ class _RecordAttendanceScreenState extends State<RecordAttendanceScreen> {
                             extraHours: allExtras[todayKey]![name] ?? '0',
                             initials: attendanceInitials(name),
                             readOnly: _isPastDay,
+                            nonWorkingDay: isNonWorkingDay(selectedDate),
                             onStatusChanged: (newStatus) {
                               setState(() {
                                 allAttendance[todayKey]![name] = newStatus;
@@ -594,6 +664,9 @@ class _AttendanceCard extends StatelessWidget {
   /// Past day: the card still renders its status, but nothing responds.
   final bool readOnly;
 
+  /// Sunday: the status is fixed at ausente, but the hours stay enterable.
+  final bool nonWorkingDay;
+
   final Function(String) onStatusChanged;
   final Function(String) onExtraHoursChanged;
 
@@ -603,6 +676,7 @@ class _AttendanceCard extends StatelessWidget {
     required this.extraHours,
     required this.initials,
     required this.readOnly,
+    required this.nonWorkingDay,
     required this.onStatusChanged,
     required this.onExtraHoursChanged,
   });
@@ -612,11 +686,15 @@ class _AttendanceCard extends StatelessWidget {
     final isSpecial = isSpecialAttendanceStatus(status);
     final isPresent = status == '1';
     // A past day disables interaction without changing how the card looks —
-    // the screen doubles as an attendance viewer. Only V/INC/I grey out.
+    // the screen doubles as an attendance viewer. Only V/INC grey out.
     final locked = readOnly || isSpecial;
+    // Deliberately NOT folded into `locked`: that also gates the hours strip,
+    // and hours are the entire point of a non-working day. Only the status
+    // toggle is frozen.
+    final statusLocked = locked || nonWorkingDay;
 
     return GestureDetector(
-      onTap: locked ? null : () => onStatusChanged(isPresent ? '0' : '1'),
+      onTap: statusLocked ? null : () => onStatusChanged(isPresent ? '0' : '1'),
       child: Container(
         decoration: attendanceCardDecoration(isSpecial),
         child: Stack(
@@ -650,7 +728,9 @@ class _AttendanceCard extends StatelessWidget {
             Positioned(
               top: 8,
               left: 8,
-              child: AttendancePresentBadge(isPresent: isPresent),
+              child: nonWorkingDay
+                  ? const AttendanceNonWorkingBadge()
+                  : AttendancePresentBadge(isPresent: isPresent),
             ),
             if (isSpecial) AttendanceStatusWatermark(status: status),
           ],

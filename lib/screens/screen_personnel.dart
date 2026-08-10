@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'models/worker.dart';
 import 'models/worker_roles.dart';
 import 'package:control_app/api.dart';
+import 'screen_absences.dart';
 import 'screen_worker_form.dart';
 
 class PersonnelScreen extends StatefulWidget {
@@ -315,6 +316,19 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         ),
         elevation: 0,
         actions: [
+          // Hidden during multi-select so it does not sit next to the delete
+          // action. Admin-only because creating an absence is admin-only
+          // server-side — and because it destroys attendance rows.
+          if (selectedIds.isEmpty && _isAdmin)
+            IconButton(
+              tooltip: 'AUSENCIAS',
+              icon: const Icon(Icons.event_busy),
+              color: Colors.white,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AbsencesScreen()),
+              ),
+            ),
           if (selectedIds.isNotEmpty) ...[
             Center(
               child: Text(
