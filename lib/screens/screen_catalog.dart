@@ -41,11 +41,20 @@ class _CatalogTabState extends State<CatalogTab> {
         http.get(u('/projects/$_projectId/partidas'), headers: headers),
       ]);
       if (!mounted) return;
+      // Admin, full stop. Every affordance this flag gates — EXCEL import,
+      // AGREGAR, the row tap and the ⋯ menu — calls a route that became
+      // admin-only on 2026-08-17.
+      //
+      // It used to read `is_admin || username == encargado_username`, mirroring
+      // a backend tier that no longer exists: `_can_write_project` is deleted
+      // and `projects.encargado_username` grants nothing. That expression was
+      // equivalent to this one only by accident, because no obra has an
+      // encargado set — assign one and this screen would have offered that user
+      // buttons that 403 on every tap.
       var canWrite = false;
       if (results[1].statusCode == 200) {
         final me = jsonDecode(results[1].body) as Map<String, dynamic>;
-        canWrite = me['is_admin'] == true ||
-            me['username'] == widget.project['encargado_username'];
+        canWrite = me['is_admin'] == true;
       }
       setState(() {
         _items = results[0].statusCode == 200
@@ -402,27 +411,27 @@ class _CatalogTabState extends State<CatalogTab> {
                 if (byPartida.containsKey(null)) null,
               ];
 
-              double weightedPct(List<Map<String, dynamic>> items) {
-                double numerator = 0, den = 0;
-                for (final it in items) {
-                  final q = (it['quantity'] as num?)?.toDouble();
-                  final pu = (it['unit_price'] as num?)?.toDouble();
-                  if (q == null || pu == null || q <= 0) continue;
-                  final ex =
-                  ((it['executed'] as num?)?.toDouble() ?? 0).clamp(0, q);
-                  numerator += ex * pu;
-                  den += q * pu;
-                }
-                return den == 0 ? 0 : numerator / den;
-              }
-
               final children = <Widget>[];
               for (final key in orderedKeys) {
                 final items = byPartida[key]!;
                 final partida = key == null
                     ? null
                     : _partidas.firstWhere((p) => p['id'] == key);
-                final pct = weightedPct(items);
+                // Server-computed, from GET /projects/{id}/partidas. It is
+                // weighted by unit_price, which non-admins do not receive
+                // (questionnaire 6.2) — that is the whole reason this is no
+                // longer worked out here.
+                //
+                // It replaced a local weightedPct() that skipped any item
+                // without a price and returned 0 when that left the denominator
+                // empty. The moment prices are withheld, that meant every
+                // partida drawing a confident 0% — indistinguishable from
+                // "nothing built yet", with no error anywhere to notice.
+                //
+                // null means there is nothing priced to measure: an empty
+                // partida, or the SIN PARTIDA bucket, which has no row in
+                // /partidas to carry a number. Rendered as an em dash.
+                final pct = (partida?['progress'] as num?)?.toDouble();
                 children.add(Padding(
                   padding: const EdgeInsets.only(top: 10, bottom: 6),
                   child: Row(children: [
@@ -439,21 +448,29 @@ class _CatalogTabState extends State<CatalogTab> {
                             fontWeight: FontWeight.w700),
                       ),
                     ),
-                    Text('${(pct * 100).toStringAsFixed(0)}%',
+                    Text(
+                        pct == null
+                            ? '—'
+                            : '${(pct * 100).toStringAsFixed(0)}%',
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 15,
                             fontWeight: FontWeight.w700)),
                   ]),
                 ));
-                children.add(ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(
-                      value: pct,
-                      minHeight: 5,
-                      backgroundColor: Colors.white24,
-                      color: Colors.white),
-                ));
+                // No bar when there is nothing to measure. A zero-length bar
+                // beside an em dash would put back the same "0% means nothing
+                // built" reading the dash exists to avoid.
+                if (pct != null) {
+                  children.add(ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                        value: pct,
+                        minHeight: 5,
+                        backgroundColor: Colors.white24,
+                        color: Colors.white),
+                  ));
+                }
                 children.add(const SizedBox(height: 8));
                 for (final it in items) {
                   final q = (it['quantity'] as num?)?.toDouble();

@@ -45,8 +45,12 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
       if (!mounted || resp.statusCode != 200) return;
       final me = jsonDecode(resp.body) as Map<String, dynamic>;
       setState(() {
-        _canWrite = me['is_admin'] == true ||
-            (me['username'] ?? '') == project['encargado_username'];
+        // Admin, full stop. Its one consumer is _InfoTab's catalog-PDF
+        // affordance, which does PUT /projects/{id} — admin-only since
+        // 2026-08-17. The `|| username == encargado_username` half that used to
+        // be here mirrored a backend tier that no longer exists, and matched
+        // nobody only because no obra has an encargado assigned.
+        _canWrite = me['is_admin'] == true;
       });
     } catch (_) {}
   }
