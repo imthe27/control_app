@@ -46,28 +46,6 @@ IconData _tipoIcon(String t) => t == 'V' ? Icons.beach_access : Icons.local_hosp
 Color _tipoColor(String t) =>
     t == 'V' ? const Color(0xFFE65100) : const Color(0xFF1565C0);
 
-/// The server's `detail`, decoded as UTF-8.
-///
-/// **Always bodyBytes here, never `response.body`.** Successful responses carry
-/// `charset=utf-8`, but FastAPI builds its own JSONResponse for every
-/// HTTPException, so error details still go out as bare `application/json` —
-/// and Dart's http falls back to latin-1 on that. This screen is full of
-/// accented details (`El trabajador ya tiene una ausencia en esas fechas`,
-/// `La fecha final no puede ser anterior a la inicial`, `Tipo inválido`), so
-/// reading `.body` would render every one of them as mojibake.
-String? _serverMessage(http.Response resp) {
-  try {
-    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-    if (decoded is Map && decoded['detail'] is String) {
-      return decoded['detail'] as String;
-    }
-  } catch (_) {
-    // Not JSON, or not shaped the way we expect — fall back to the caller's
-    // generic message rather than showing the user a parse error.
-  }
-  return null;
-}
-
 // ===========================================================================
 // List
 // ===========================================================================
@@ -128,7 +106,7 @@ class _AbsencesScreenState extends State<AbsencesScreen> {
       } else {
         setState(() => _loading = false);
         _snack(
-            _serverMessage(resp) ??
+            serverMessage(resp) ??
                 'Error al cargar ausencias (HTTP ${resp.statusCode})',
             error: true);
       }
@@ -225,7 +203,7 @@ class _AbsencesScreenState extends State<AbsencesScreen> {
         _load();
       } else {
         _snack(
-            _serverMessage(resp) ??
+            serverMessage(resp) ??
                 'No se pudo borrar (HTTP ${resp.statusCode})',
             error: true);
       }
@@ -507,7 +485,7 @@ class _AbsenceFormScreenState extends State<AbsenceFormScreen> {
     if (!mounted) return false;
     if (resp.statusCode != 200) {
       _snack(
-          _serverMessage(resp) ??
+          serverMessage(resp) ??
               'No se pudo verificar (HTTP ${resp.statusCode})',
           error: true);
       return false;
@@ -630,9 +608,9 @@ class _AbsenceFormScreenState extends State<AbsenceFormScreen> {
       }
       setState(() => _saving = false);
       // 409 is the overlap guard, 403 a non-admin, 400 a bad range or type.
-      // All four carry accents, which is why _serverMessage reads bodyBytes.
+      // All four carry accents, which is why serverMessage reads bodyBytes.
       _snack(
-          _serverMessage(resp) ?? 'No se pudo guardar (HTTP ${resp.statusCode})',
+          serverMessage(resp) ?? 'No se pudo guardar (HTTP ${resp.statusCode})',
           error: true);
     } catch (e) {
       if (!mounted) return;

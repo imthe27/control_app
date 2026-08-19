@@ -118,8 +118,10 @@ class _CatalogTabState extends State<CatalogTab> {
         _snack('$n conceptos importados');
         _load();
       } else {
-        final detail = jsonDecode(utf8.decode(resp.bodyBytes))['detail'] ?? resp.statusCode;
-        _snack('Error al importar: $detail', error: true);
+        // Was a bare jsonDecode here, which throws on a non-JSON body and
+        // turned a failed import into the catch-all 'Error: $e'.
+        _snack('Error al importar: ${serverMessage(resp) ?? resp.statusCode}',
+            error: true);
       }
     } catch (e) {
       _snack('Error: $e', error: true);
@@ -221,7 +223,10 @@ class _CatalogTabState extends State<CatalogTab> {
       if (resp.statusCode == 200 || resp.statusCode == 201) {
         _load();
       } else {
-        _snack('Error al guardar (HTTP ${resp.statusCode})', error: true);
+        // Catalog writes are admin-only since 2026-08-17: a non-admin gets
+        // `Solo administradores`, which beats a bare 403.
+        _snack(serverMessage(resp) ??
+            'Error al guardar (HTTP ${resp.statusCode})', error: true);
       }
     } catch (e) {
       _snack('Error: $e', error: true);
@@ -309,7 +314,8 @@ class _CatalogTabState extends State<CatalogTab> {
       if (!mounted) return;
       resp.statusCode == 200
           ? _load()
-          : _snack('No se pudo borrar (HTTP ${resp.statusCode})', error: true);
+          : _snack(serverMessage(resp) ??
+              'No se pudo borrar (HTTP ${resp.statusCode})', error: true);
     } catch (e) {
       _snack('Error: $e', error: true);
     }

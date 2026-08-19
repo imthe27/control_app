@@ -144,14 +144,14 @@ class _ProjectDetailsScreenState extends State<ProjectDetailScreen> {
         }),
       );
       if (!mounted) return;
-      if (put.statusCode == 401 || put.statusCode == 403) {
-        setState(() => _uploadingPdf = false);
-        _snackError('No tienes permiso para editar esta obra');
-        return;
-      }
       if (put.statusCode != 200) {
         setState(() => _uploadingPdf = false);
-        _snackError('Error al guardar (HTTP ${put.statusCode})');
+        // Editing an obra is admin-only since 2026-08-17, so a 403 reads
+        // `Solo administradores`. That replaces a hardcoded "No tienes
+        // permiso para editar esta obra", which also caught 401 — where
+        // AuthClient is already redirecting to /login.
+        _snackError(serverMessage(put) ??
+            'Error al guardar (HTTP ${put.statusCode})');
         return;
       }
       await _refreshProject();

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -28,6 +30,42 @@ Future<Map<String, String>> authHeaders({bool json = true}) async {
     if (json) 'Content-Type': 'application/json',
     if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
   };
+}
+
+/// The server's `detail` string, or null when there isn't a usable one.
+///
+/// Use it as `serverMessage(resp) ?? '<generic fallback>'`. Without it a denied
+/// user sees a bare status code: the backend's 403s all read
+/// `Solo administradores` and its 400s carry written reasons (the avance cap,
+/// the absence-overlap rules), and every one of those was being thrown away.
+///
+/// **Always `bodyBytes`, never `resp.body`.** Successful responses carry
+/// `charset=utf-8`, but FastAPI builds its own JSONResponse for every
+/// HTTPException, so error details go out as bare `application/json` — and
+/// Dart's http falls back to latin-1 on that. Details are full of accents
+/// (`La nota está vacía`, `El avance excede la cantidad del concepto…`), so
+/// reading `.body` renders them as mojibake.
+///
+/// Returns null unless `detail` is a non-empty String. A 422 from FastAPI puts
+/// a *list* of field errors there; stringifying that would show the user a Dart
+/// list dump, so it falls through to the caller's generic message instead.
+///
+/// Lives here, not on a screen. Two private copies had already grown — in
+/// `screen_absences` and `screen_logbook` — and per-screen network helpers are
+/// the pattern that hid missing auth headers across seven files once before.
+String? serverMessage(http.Response resp) {
+  try {
+    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    final detail = decoded is Map ? decoded['detail'] : null;
+    if (detail is String) {
+      final text = detail.trim();
+      if (text.isNotEmpty) return text;
+    }
+  } catch (_) {
+    // Not JSON, or not shaped the way we expect — fall back to the caller's
+    // generic message rather than showing the user a parse error.
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -243,7 +243,8 @@ class _LogbookTabState extends State<LogbookTab>
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('No se pudo borrar (HTTP ${resp.statusCode})'),
+            content: Text(serverMessage(resp) ??
+                'No se pudo borrar (HTTP ${resp.statusCode})'),
             backgroundColor: Colors.red,
           ),
         );
@@ -1172,7 +1173,8 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       } else {
         setState(() => _busy = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('No se pudo borrar (HTTP ${resp.statusCode})'),
+          content: Text(serverMessage(resp) ??
+              'No se pudo borrar (HTTP ${resp.statusCode})'),
           backgroundColor: Colors.red,
         ));
       }
@@ -1813,10 +1815,12 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
           _conceptoId = null; // reset concepto on partida change, same as
                               // the dropdown's onChanged
         });
-      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        _showError('No tienes permiso para crear partidas');
       } else {
-        _showError('Error al crear la partida (HTTP ${resp.statusCode})');
+        // Partidas are admin-only since 2026-08-17, so a 403 here reads
+        // `Solo administradores` — which says who *can* do it, unlike the
+        // hardcoded "No tienes permiso para crear partidas" this replaces.
+        _showError(serverMessage(resp) ??
+            'Error al crear la partida (HTTP ${resp.statusCode})');
       }
     } catch (e) {
       _showError('Error: $e');
@@ -1893,32 +1897,27 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       if (!mounted) return;
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (mounted) Navigator.pop(context, true);
-      } else if (response.statusCode == 401 || response.statusCode == 403) {
-        setState(() => _isSaving = false);
-        _showError('No tienes permiso para escribir en esta bitácora');
       } else {
         setState(() => _isSaving = false);
-        // The server-side avance cap answers 400 with a written reason. It
-        // should only fire when someone else registered progress while this
-        // form was open, and a bare status code would leave that unexplained.
-        _showError(_serverMessage(response) ??
+        // Every non-2xx goes through the server's own `detail`. The avance cap
+        // answers 400 with a written reason, and a 403 on the PUT path means
+        // `Solo el autor puede editar la nota` — a bare status code would
+        // leave either unexplained.
+        //
+        // There used to be a 401/403 branch here saying "No tienes permiso
+        // para escribir en esta bitácora". It was wrong twice over after the
+        // encargado tier was removed (2026-08-17): creating a note is open to
+        // any authenticated user, so a 403 can no longer come from the POST at
+        // all, and on the PUT it hid the real author-or-admin reason. The 401
+        // half was wrong from the start — AuthClient already redirects an
+        // expired session to /login, so this only flashed a permissions error
+        // on the way out.
+        _showError(serverMessage(response) ??
             'Error al guardar (HTTP ${response.statusCode})');
       }
     } catch (e) {
       setState(() => _isSaving = false);
       _showError('Error: $e');
-    }
-  }
-
-  /// FastAPI puts the human-readable reason in `detail`.
-  String? _serverMessage(http.Response resp) {
-    try {
-      final body = jsonDecode(utf8.decode(resp.bodyBytes));
-      final detail = body is Map ? body['detail'] : null;
-      final text = detail?.toString().trim();
-      return (text == null || text.isEmpty) ? null : text;
-    } catch (_) {
-      return null;
     }
   }
 
@@ -2479,10 +2478,11 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
         _codeController.clear();
         _nameController.clear();
         await _load();
-      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        _showError('No tienes permiso para gestionar las partidas');
       } else {
-        _showError('Error al agregar (HTTP ${resp.statusCode})');
+        // Admin-only since 2026-08-17; surface the server's `Solo
+        // administradores` rather than a hardcoded guess.
+        _showError(serverMessage(resp) ??
+            'Error al agregar (HTTP ${resp.statusCode})');
       }
     } catch (e) {
       _showError('Error: $e');
@@ -2622,10 +2622,11 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
       if (!mounted) return;
       if (resp.statusCode == 200) {
         _load();
-      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        _showError('No tienes permiso para editar las partidas');
       } else {
-        _showError('Error al guardar (HTTP ${resp.statusCode})');
+        // Admin-only since 2026-08-17; surface the server's `Solo
+        // administradores` rather than a hardcoded guess.
+        _showError(serverMessage(resp) ??
+            'Error al guardar (HTTP ${resp.statusCode})');
       }
     } catch (e) {
       _showError('Error: $e');
@@ -2665,7 +2666,8 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
       if (resp.statusCode == 200) {
         _load();
       } else {
-        _showError('No se pudo borrar (HTTP ${resp.statusCode})');
+        _showError(serverMessage(resp) ??
+            'No se pudo borrar (HTTP ${resp.statusCode})');
       }
     } catch (e) {
       _showError('Error: $e');

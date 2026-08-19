@@ -213,12 +213,12 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
       if (!mounted) return;
       if (resp.statusCode == 200) {
         Navigator.pop(context, true);
-      } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        setState(() => _isSaving = false);
-        _showError('No tienes permiso para borrar esta obra');
       } else {
         setState(() => _isSaving = false);
-        _showError('Error al borrar (HTTP ${resp.statusCode})');
+        // Deleting an obra is admin-only since 2026-08-17; surface the
+        // server's `Solo administradores` instead of a hardcoded guess.
+        _showError(serverMessage(resp) ??
+            'Error al borrar (HTTP ${resp.statusCode})');
       }
     } catch (e) {
       setState(() => _isSaving = false);
@@ -275,14 +275,14 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
         );
       }
 
-      if (response.statusCode == 401 || response.statusCode == 403) {
-        setState(() => _isSaving = false);
-        _showError('No tienes permiso para guardar esta obra');
-        return;
-      }
       if (response.statusCode != 200 && response.statusCode != 201) {
         setState(() => _isSaving = false);
-        _showError('Error al guardar: ${response.body}');
+        // Creating/editing an obra is admin-only since 2026-08-17, so a 403
+        // reads `Solo administradores`. This also stops using `response.body`,
+        // which decodes error details as latin-1 — see serverMessage's note on
+        // bodyBytes — and turned every accented detail into mojibake.
+        _showError(serverMessage(response) ??
+            'Error al guardar (HTTP ${response.statusCode})');
         return;
       }
 
