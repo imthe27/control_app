@@ -28,7 +28,6 @@ class _LogbookTabState extends State<LogbookTab>
   List<Map<String, dynamic>> _partidas = [];
   List<Map<String, dynamic>> _catalog = [];
   bool _loading = true;
-  bool _canWrite = false;
   String _username = '';
   bool _isAdmin = false;
   int? _filterPartidaId; // null = todas, -1 = sin partida
@@ -80,16 +79,21 @@ class _LogbookTabState extends State<LogbookTab>
           jsonDecode(utf8.decode(results[3].bodyBytes)))
           : <Map<String, dynamic>>[];
 
-      var canWrite = false;
+      // There is no single "can write here" answer for this screen any more.
+      // Writing a NOTE is open to any authenticated user in any obra
+      // (questionnaire 5.1, requested by the client), while editing PARTIDAS is
+      // admin-only (6.3). One flag cannot express both, and the one that used
+      // to be here — `isAdmin || username == encargado_username` — expressed
+      // neither: it mirrored the encargado tier the backend deleted on
+      // 2026-08-17, and since no obra has an encargado set it silently
+      // evaluated to `isAdmin`. That hid the add-note button from every
+      // non-admin, so 5.1 shipped on the server and never reached the app.
       var username = '';
       var isAdmin = false;
       if (results[2].statusCode == 200) {
         final me = jsonDecode(results[2].body) as Map<String, dynamic>;
         username = (me['username'] ?? '').toString();
         isAdmin = me['is_admin'] == true;
-        canWrite = isAdmin ||
-            (username.isNotEmpty &&
-                username == widget.project['encargado_username']);
       }
 
       // A partida deleted in the manager must not strand the feed on a
@@ -105,7 +109,6 @@ class _LogbookTabState extends State<LogbookTab>
         _notes = notes;
         _partidas = partidas;
         _catalog = catalog;
-        _canWrite = canWrite;
         _username = username;
         _isAdmin = isAdmin;
         _filterPartidaId = filterId;
@@ -505,23 +508,23 @@ class _LogbookTabState extends State<LogbookTab>
               ? ListView(
             // ListView so pull-to-refresh works on the empty state too
             children: [
-              if (_canWrite)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                        ),
-                        onPressed: _openPartidasManager,
-                        icon: const Icon(Icons.format_list_numbered, size: 18),
-                        label: const Text('PARTIDAS'),
+              // Ungated: see the toolbar button below.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
                       ),
-                    ],
-                  ),
+                      onPressed: _openPartidasManager,
+                      icon: const Icon(Icons.format_list_numbered, size: 18),
+                      label: const Text('PARTIDAS'),
+                    ),
+                  ],
                 ),
+              ),
               SizedBox(height: MediaQuery
                   .of(context)
                   .size
@@ -538,16 +541,16 @@ class _LogbookTabState extends State<LogbookTab>
                   ),
                 ),
               ),
-              if (_canWrite)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Usa el botón + para agregar la primera',
-                      style: TextStyle(color: Colors.white38, fontSize: 13),
-                    ),
+              // Ungated with the FAB it refers to (questionnaire 5.1).
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Usa el botón + para agregar la primera',
+                    style: TextStyle(color: Colors.white38, fontSize: 13),
                   ),
                 ),
+              ),
             ],
           )
               : Builder(builder: (context) {
@@ -580,22 +583,23 @@ class _LogbookTabState extends State<LogbookTab>
                             ),
                           ),
                           const Spacer(),
-                          if (_canWrite)
-                            TextButton.icon(
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                              ),
-                              onPressed: _openPartidasManager,
-                              icon: const Icon(Icons.format_list_numbered,
-                                  size: 18),
-                              label: const Text('PARTIDAS'),
+                          // Ungated: the manager is readable by anyone and hides
+                          // its own admin-only controls.
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white70,
                             ),
+                            onPressed: _openPartidasManager,
+                            icon: const Icon(Icons.format_list_numbered,
+                                size: 18),
+                            label: const Text('PARTIDAS'),
+                          ),
                           // Compact icon, not a third TextButton.icon: a third
                           // label overflows this row on a narrow phone.
                           //
-                          // Deliberately NOT gated on _canWrite. PARTIDAS edits
-                          // the obra so it is write-gated; printing only reads
-                          // what is already on screen.
+                          // Deliberately ungated. PARTIDAS is admin-only
+                          // because it edits the obra's structure; printing
+                          // only reads what is already on screen.
                           if (filtered.isNotEmpty)
                             IconButton(
                               icon: const Icon(Icons.print,
@@ -632,17 +636,20 @@ class _LogbookTabState extends State<LogbookTab>
             );
           }),
         ),
-        if (_canWrite)
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: FloatingActionButton(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF1C1CF0),
-              onPressed: _openNoteForm,
-              child: const Icon(Icons.add),
-            ),
+        // Ungated on purpose: writing a note is open to any authenticated user
+        // in any obra (questionnaire 5.1). This used to sit behind _canWrite,
+        // which resolved to is_admin, so non-admins could not add a note in the
+        // app even though POST /projects/{id}/notes accepts them.
+        Positioned(
+          bottom: 20,
+          right: 20,
+          child: FloatingActionButton(
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF1C1CF0),
+            onPressed: _openNoteForm,
+            child: const Icon(Icons.add),
           ),
+        ),
       ],
     );
   }
@@ -2387,11 +2394,36 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
   final _nameController = TextEditingController();
   bool _loading = true;
   bool _adding = false;
+  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
+    _loadIsAdmin();
     _syncThenLoad();
+  }
+
+  /// Who is looking? This screen had no idea until 2026-08-19, because the
+  /// button that opens it was gated and only admins ever arrived.
+  ///
+  /// Now that the PARTIDAS button is open to everyone, this screen serves two
+  /// tiers at once: reading the list and ADDING a partida are open to any
+  /// authenticated user, while renaming and deleting stay admin-only. The only
+  /// thing this flag hides is the per-row ⋯ menu, which holds exactly those
+  /// two actions — without it a non-admin would get a sheet whose every entry
+  /// answers `Solo administradores`.
+  Future<void> _loadIsAdmin() async {
+    try {
+      final resp =
+          await http.get(u('/me'), headers: await authHeaders(json: false));
+      if (!mounted || resp.statusCode != 200) return;
+      final me = jsonDecode(resp.body) as Map<String, dynamic>;
+      setState(() => _isAdmin = me['is_admin'] == true);
+    } catch (_) {
+      // Leave _isAdmin false. Hiding a control the user was entitled to is
+      // recoverable by reopening the screen; showing one that always fails is
+      // the thing worth avoiding.
+    }
   }
 
   /// Auto-create any partidas the catalog implies, then load the list.
@@ -2699,7 +2731,9 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
         ),
         child: Column(
           children: [
-            // ---------- Add row ----------
+            // ---------- Add row ---------- (any authenticated user:
+            // creating a partida opened up on 2026-08-19; rename and delete
+            // stay admin-only, so the per-row ⋯ menu below is still gated)
             Padding(
               padding: const EdgeInsets.all(16),
               child: Card(
@@ -2796,11 +2830,15 @@ class _PartidasManagerScreenState extends State<PartidasManagerScreen> {
                         style: const TextStyle(
                             fontSize: 14, fontWeight: FontWeight.w500),
                       ),
-                      trailing: IconButton(
-                        icon: Icon(Icons.more_horiz,
-                            color: Colors.grey[500]),
-                        onPressed: () => _partidaMenu(p),
-                      ),
+                      // EDITAR / BORRAR PARTIDA are admin-only (6.3); the menu
+                      // holds nothing else, so a non-admin gets no ⋯ at all.
+                      trailing: _isAdmin
+                          ? IconButton(
+                              icon: Icon(Icons.more_horiz,
+                                  color: Colors.grey[500]),
+                              onPressed: () => _partidaMenu(p),
+                            )
+                          : null,
                     ),
                   );
                 },
