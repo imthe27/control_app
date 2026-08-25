@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:control_app/main.dart' show baseUrl;
@@ -26,10 +29,55 @@ const Map<String, String> jsonHeaders = {'Content-Type': 'application/json'};
 Future<Map<String, String>> authHeaders({bool json = true}) async {
   const storage = FlutterSecureStorage();
   final token = await storage.read(key: 'auth_token');
+  // Refresh the sync mirror on the way past, so the two can never disagree
+  // about the current token.
+  _tokenCache = _usableToken(token);
   return {
     if (json) 'Content-Type': 'application/json',
     if (token != null && token != 'guest') 'Authorization': 'Bearer $token',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Synchronous credentials, for callers that cannot await
+// ---------------------------------------------------------------------------
+
+/// In-memory mirror of the stored token. Null means "not logged in".
+String? _tokenCache;
+
+String? _usableToken(String? raw) =>
+    (raw == null || raw.isEmpty || raw == 'guest') ? null : raw;
+
+/// Loads the token into [_tokenCache] from secure storage.
+///
+/// **Must complete before anything that renders a media URL.** `SplashScreen`
+/// awaits this before it navigates anywhere, and its own `build` draws only a
+/// spinner, so no image widget can exist until the cache is warm. That ordering
+/// is what makes [authHeadersSync] safe; if the splash ever navigates without
+/// awaiting, images will race it and go out unauthenticated.
+Future<void> primeAuthToken() async {
+  const storage = FlutterSecureStorage();
+  _tokenCache = _usableToken(await storage.read(key: 'auth_token'));
+}
+
+/// Records the token at login, without a second storage read.
+void setAuthToken(String? token) => _tokenCache = _usableToken(token);
+
+/// Clears the in-memory token. Call wherever the stored one is deleted.
+void clearAuthToken() => _tokenCache = null;
+
+/// `Authorization` header built without touching storage.
+///
+/// Exists because `CachedNetworkImage.httpHeaders` and
+/// `CachedNetworkImageProvider.headers` are plain `Map<String, String>` and are
+/// read inside `build()`, where [authHeaders] cannot be awaited. Ten render
+/// sites need this; the two bare `http.get` media fetches are already async and
+/// use [authHeaders] instead.
+///
+/// Deliberately carries no `Content-Type` — it is for GETs of binary files.
+Map<String, String> authHeadersSync() {
+  final token = _tokenCache;
+  return {if (token != null) 'Authorization': 'Bearer $token'};
 }
 
 /// The server's `detail` string, or null when there isn't a usable one.
@@ -92,7 +140,21 @@ bool _redirectingToLogin = false;
 /// Only safe because the API returns 401 exclusively for a missing or invalid
 /// token; insufficient permissions come back as 403. If an endpoint ever
 /// starts returning 401 for authorization rather than authentication, this
-/// will log people out spuriously.
+/// will log people out spuriously. **`GET /media/{filename}` is the sharpest
+/// case and deliberately answers 403** — for a bad signature today, and for a
+/// missing session once 8.3 lands. A 401 there would turn a stale image URL
+/// into a forced logout, and on a device that keeps failing, a logout loop.
+///
+/// Also drops the cached images. Requiring a session on `/media` (8.3) is not
+/// retroactive on its own: `CachedNetworkImage` keys its disk cache on the URL,
+/// so photos already fetched keep rendering for the next person to use the
+/// device. Emptying it costs a full re-download of every avatar and bitácora
+/// photo on the next login, which on a poor job-site connection is real — but
+/// leaving another user's photos on screen after a session ends is worse.
+///
+/// **Residual either way:** this does not invalidate the signed URLs
+/// themselves. Anyone holding one keeps a working link until `exp` (24–48h),
+/// session or no session.
 Future<void> handleUnauthorized() async {
   if (_redirectingToLogin) return;
   final nav = navigatorKey.currentState;
@@ -101,7 +163,39 @@ Future<void> handleUnauthorized() async {
   if (nav == null) return;
   _redirectingToLogin = true;
   await const FlutterSecureStorage().delete(key: 'auth_token');
+  clearAuthToken();
+  await clearMediaCaches();
   nav.pushNamedAndRemoveUntil('/login', (_) => false);
+}
+
+/// Empties every on-device copy of downloaded media. **Three caches, not one** —
+/// missing any of them leaves the previous session's files readable:
+///
+/// 1. `CachedNetworkImage`'s disk cache, keyed on the URL.
+/// 2. Flutter's in-memory image cache, which would otherwise keep painting
+///    decoded frames the disk cache no longer backs.
+/// 3. `catalogs/` in the documents directory — `CatalogPdfScreen` keeps its own
+///    cache and checks `file.exists()` before fetching, so the priced bill of
+///    quantities would keep opening offline after a logout.
+///
+/// The third is also why clearing "the image cache" is not a valid way to test
+/// the 8.3 gate: the catalog PDF would still open from disk.
+Future<void> clearMediaCaches() async {
+  PaintingBinding.instance.imageCache.clear();
+  PaintingBinding.instance.imageCache.clearLiveImages();
+  try {
+    await DefaultCacheManager().emptyCache();
+  } catch (_) {
+    // Never block a logout on cache teardown: the token is already gone by the
+    // time this runs, so failing here must not keep the user on the screen.
+  }
+  try {
+    final dir = Directory(
+        '${(await getApplicationDocumentsDirectory()).path}/catalogs');
+    if (await dir.exists()) await dir.delete(recursive: true);
+  } catch (_) {
+    // Same reasoning.
+  }
 }
 
 /// Re-arms the guard. Call after a successful login — never on a timer, which

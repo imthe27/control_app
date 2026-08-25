@@ -41,6 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
         final storage = FlutterSecureStorage();
         await storage.write(key: 'auth_token', value: token);
+        // Seed the sync mirror before navigating: /home renders photos, and
+        // authHeadersSync() cannot await a storage read inside build().
+        setAuthToken(token);
         // Re-arm the global 401 guard: this session is valid again.
         resetUnauthorizedGuard();
 
