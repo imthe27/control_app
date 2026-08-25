@@ -810,8 +810,8 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
 
             // ---------- Personal info ----------
             WorkerSectionCard(title: 'INFORMACIÓN PERSONAL (OPCIONAL)', children: [
-              _field(_nss, 'NSS', kb: TextInputType.number),
-              _field(_curp, 'CURP', caps: true),
+              _field(_nss, 'NSS', kb: TextInputType.number, maxLen: 11),
+              _field(_curp, 'CURP', caps: true, maxLen: 18),
               _field(_phone, 'TELÉFONO', kb: TextInputType.phone),
               _field(_address, 'DIRECCIÓN'),
               _field(_blood, 'TIPO DE SANGRE (EJ. O+)', caps: true),
