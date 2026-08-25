@@ -358,6 +358,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
                       else if (existingPhoto != null)
                         CachedNetworkImage(
                           imageUrl: existingPhoto,
+                          httpHeaders: authHeadersSync(),
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(
                             color: Colors.white24,

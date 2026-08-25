@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:control_app/api.dart';
 
 /// Section card shared by the worker ficha (`screen_worker`) and the worker
 /// form (`screen_worker_form`).
@@ -87,6 +88,7 @@ class WorkerAvatar extends StatelessWidget {
     } else if (photoUrl != null) {
       inner = CachedNetworkImage(
         imageUrl: photoUrl!,
+        httpHeaders: authHeadersSync(),
         fit: BoxFit.cover,
         errorWidget: (c, url, e) => _placeholder(),
       );

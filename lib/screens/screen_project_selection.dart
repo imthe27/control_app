@@ -161,6 +161,7 @@ class _ProjectSelectionScreenState extends State<ProjectSelectionScreen> {
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                       child: CachedNetworkImage(
                         imageUrl: resolvePhotoUrl(project['photo_url'])!,
+                        httpHeaders: authHeadersSync(),
                         fit: BoxFit.cover,
                         placeholder: (context, url) => const Center(
                           child: CircularProgressIndicator(color: Colors.yellow),

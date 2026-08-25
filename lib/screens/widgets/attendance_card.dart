@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:control_app/api.dart';
 
 // Shared pieces of the attendance card, used by the daily screen
 // (screen_record_attendance) and REGISTRO PASADO (screen_backfill_attendance).
@@ -146,6 +147,7 @@ class AttendancePhotoHeader extends StatelessWidget {
                   const BorderRadius.vertical(top: Radius.circular(16)),
               child: CachedNetworkImage(
                 imageUrl: photoUrl!,
+                httpHeaders: authHeadersSync(),
                 fit: BoxFit.cover,
                 width: double.infinity,
                 placeholder: (context, url) => const Center(

@@ -631,8 +631,16 @@ class _WorkerCard extends StatelessWidget {
                       ),
                       image: worker.photoUrl != null
                           ? DecorationImage(
+                              // The tenth media fetch, and the one a grep for
+                              // `imageUrl:` misses — this is the ImageProvider
+                              // form, not the widget, so the header parameter
+                              // is `headers`, not `httpHeaders`. A
+                              // DecorationImage has no errorWidget either, so a
+                              // failure here is a silent blue box rather than a
+                              // broken-image icon.
                               image: CachedNetworkImageProvider(
                                 worker.photoUrl!,
+                                headers: authHeadersSync(),
                               ),
                               fit: BoxFit.cover,
                             )

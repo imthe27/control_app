@@ -291,6 +291,7 @@ class _InfoTab extends StatelessWidget {
             child: photoUrl != null
                 ? CachedNetworkImage(
               imageUrl: photoUrl,
+              httpHeaders: authHeadersSync(),
               fit: BoxFit.cover,
               placeholder: (context, url) =>
               const Center(child: CircularProgressIndicator(color: Colors.white)),

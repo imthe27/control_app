@@ -863,6 +863,7 @@ class _NoteCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                           child: CachedNetworkImage(
                             imageUrl: url,
+                            httpHeaders: authHeadersSync(),
                             fit: BoxFit.cover,
                             placeholder: (context, url) =>
                                 Container(color: Colors.grey[200]),
@@ -926,10 +927,19 @@ class _GalleryScreen extends StatelessWidget {
               child: Center(
                 child: CachedNetworkImage(
                   imageUrl: photos[i],
+                  httpHeaders: authHeadersSync(),
                   fit: BoxFit.contain,
                   placeholder: (context, url) =>
                   const CircularProgressIndicator(
                     color: Colors.white,
+                  ),
+                  // Was missing. Without it a failed fetch fills the fullscreen
+                  // viewer with Flutter's default broken-image glyph and no
+                  // explanation — the worst place in the app to leave unhandled.
+                  errorWidget: (context, url, error) => const Icon(
+                    Icons.broken_image,
+                    color: Colors.white38,
+                    size: 64,
                   ),
                 ),
               ),
@@ -959,6 +969,7 @@ class _PhotoGrid extends StatelessWidget {
           children: [
             CachedNetworkImage(
               imageUrl: photos[i],
+              httpHeaders: authHeadersSync(),
               fit: BoxFit.cover,
               placeholder: (c, u) => Container(color: Colors.grey[300]),
               errorWidget: (c, u, e) => Container(
@@ -2230,9 +2241,24 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
                                     borderRadius: BorderRadius.circular(10),
                                     child: CachedNetworkImage(
                                       imageUrl: entry.value,
+                                      httpHeaders: authHeadersSync(),
                                       width: 84,
                                       height: 84,
                                       fit: BoxFit.cover,
+                                      // Both were missing here. An existing
+                                      // photo that fails to load in the note
+                                      // form is the one a user is most likely
+                                      // to delete by mistake, thinking it is
+                                      // already gone.
+                                      placeholder: (context, url) =>
+                                          Container(color: Colors.grey[200]),
+                                      errorWidget: (context, url, error) =>
+                                          Container(
+                                            color: Colors.grey[200],
+                                            child: const Icon(
+                                                Icons.broken_image,
+                                                color: Colors.grey),
+                                          ),
                                     ),
                                   ),
                                   Positioned(
