@@ -330,16 +330,17 @@ List<String> _blockAfter(
 
 /// Rebuilds a full name from the INE's name block, **reordering it**.
 ///
-/// The card prints surnames first, given names last:
+/// The card prints surnames first, given names last, in **exactly three
+/// lines**:
 ///
 ///     NOMBRE
 ///     HERNANDEZ         <- apellido paterno, always line 1
 ///     GARCIA            <- apellido materno, always line 2
-///     GLORIA MARIA      <- nombre(s), line 3 and sometimes 4
+///     GLORIA MARIA      <- nombre(s), line 3 — BOTH names when there are two
 ///
-/// Confirmed against a real credencial (2026-08-24). The first two lines never
-/// vary; everything after them is the given name(s), which is why the caller
-/// allows four lines rather than three.
+/// Confirmed against a real credencial (2026-08-24). Two given names share the
+/// third line rather than spilling onto a fourth, so the whole line is taken;
+/// keeping only the first name would drop half of anyone called GLORIA MARIA.
 ///
 /// **Joining them in printed order is wrong**, and was the shipped behaviour
 /// until that test. It produced "HERNANDEZ GARCIA GLORIA", which is not how the
@@ -367,7 +368,17 @@ ScanResult _parseIne(String text) {
   final lines = _lines(text);
   final fields = <ScannedField>[];
 
-  final nameLines = _blockAfter(lines, 'NOMBRE', _ineNameStops, maxLines: 4);
+  // EXACTLY three lines. Confirmed against a real credencial: the block is
+  // apellido paterno, apellido materno, nombre(s) — and the nombre(s) line
+  // carries BOTH given names when there are two, so nothing is lost by
+  // stopping here.
+  //
+  // ⚠ Do not raise this to 4. It was 4 briefly and the fourth line picked up
+  // the domicilio, which then corrupted the name AND every field derived from
+  // it. The stop-list below is only a secondary guard — on a real card the
+  // DOMICILIO label does not reliably survive OCR as its own line, so the count
+  // is what actually bounds this block.
+  final nameLines = _blockAfter(lines, 'NOMBRE', _ineNameStops, maxLines: 3);
   final composedName = _composeIneName(nameLines);
   if (composedName != null && composedName.isNotEmpty) {
     fields.add(ScannedField(

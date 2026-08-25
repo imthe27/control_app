@@ -136,13 +136,34 @@ ANO DE REGISTRO 2018 01
       expect(name, isNot(contains('ORQUIDEA')));
     });
 
-    test('handles given names spanning two lines', () {
-      final text = ineText.replaceFirst('GLORIA\n', 'GLORIA\nMARIA\n');
+    test('keeps both given names when they share the third line', () {
+      final text = ineText.replaceFirst('GLORIA\n', 'GLORIA MARIA\n');
       final name = parseDocument(text)
           .fields
           .firstWhere((f) => f.target == WorkerField.name)
           .value;
-      expect(name, 'GLORIA MARIA HERNANDEZ GARCIA');
+      expect(name, 'GLORIA MARIA HERNANDEZ GARCIA',
+          reason: 'a second given name must not be dropped');
+      // And the extra name must not disturb the CURP derivation: it reads the
+      // FIRST given name and the LAST TWO tokens as surnames, so GLORIA +
+      // HERNANDEZ + GARCIA still derives HEGG.
+      expect(parseDocument(text).notes, isEmpty,
+          reason: 'a second given name must not trigger a mismatch warning');
+    });
+
+    test('never takes a fourth line into the name', () {
+      // The block is exactly three lines. A fourth was tried and swallowed the
+      // domicilio, corrupting the name and everything derived from it — and the
+      // DOMICILIO label does not reliably survive OCR as its own line, so the
+      // count is the real bound, not the stop-list.
+      final text = ineText.replaceFirst(
+          'GLORIA\nDOMICILIO\n', 'GLORIA\nC ORQUIDEA 123 INT 4\nDOMICILIO\n');
+      final name = parseDocument(text)
+          .fields
+          .firstWhere((f) => f.target == WorkerField.name)
+          .value;
+      expect(name, 'GLORIA HERNANDEZ GARCIA');
+      expect(name, isNot(contains('ORQUIDEA')));
     });
 
     test('handles an older card with both surnames on one line', () {
