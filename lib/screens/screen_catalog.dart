@@ -614,7 +614,17 @@ class _CatalogPdfScreenState extends State<CatalogPdfScreen> {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/catalogs/$filename');
       if (!await file.exists()) {
-        final resp = await http.get(Uri.parse(widget.url));
+        // Signed URL AND session, per questionnaire 8.3 — the signature alone
+        // stopped being sufficient. The header is inert against a server that
+        // does not yet require it, which is what lets this ship ahead of the
+        // backend gate.
+        //
+        // ⚠ This screen keeps its OWN disk cache, above, independent of
+        // CachedNetworkImage's. clearMediaCaches() empties both; a test that
+        // only clears the image cache will still open this document from disk
+        // and appear to pass.
+        final resp = await http.get(Uri.parse(widget.url),
+            headers: await authHeaders(json: false));
         if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
         await file.create(recursive: true);
         await file.writeAsBytes(resp.bodyBytes);

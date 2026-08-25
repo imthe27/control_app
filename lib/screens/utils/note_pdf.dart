@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:control_app/api.dart';
 
 /// Printable PDFs for the bitácora — one note, or the whole logbook.
 ///
@@ -56,11 +57,18 @@ const int _kPhotoWidth = 1200;
 ///
 /// 1. **The URL is used verbatim.** Since A9 the API hands out *signed* media
 ///    URLs carrying `?exp=&sig=`, valid 24-48h. Rebuilding one from a bare
-///    filename produces a 403. This is also why there is no `authHeaders()`
-///    call: the signature *is* the authorisation. It does not contradict
-///    "api.dart is the only network entry point" — nothing here builds a URL
-///    or a header map, it fetches an absolute one the server supplied, exactly
-///    as CachedNetworkImage already does all over the app.
+///    filename produces a 403.
+///
+///    **It now sends `authHeaders()` as well.** The signature used to be the
+///    whole authorisation and this doc said so; questionnaire 8.3 requires a
+///    session *in addition to* it, so both travel together. The header is
+///    harmless against a server that does not yet demand it, which is what
+///    lets this ship an APK ahead of the backend gate.
+///
+///    ⚠ **If the header is ever dropped here, nothing will tell you.**
+///    A non-200 returns null, and the caller reads null as "this note has no
+///    photo" — so a 401 produces a PDF that generates successfully with the
+///    photographs silently missing. No error, no snackbar, no log.
 ///
 /// 2. **Decode is bounded by `targetWidth`.** There is no upload size cap, so
 ///    a site photo can be 12MP; decoding one at full resolution is ~48MB of
@@ -75,7 +83,8 @@ Future<Uint8List?> _photoForPdf(String url) async {
   ui.Image? decoded;
   ui.Codec? codec;
   try {
-    final resp = await http.get(Uri.parse(url));
+    final resp = await http.get(Uri.parse(url),
+        headers: await authHeaders(json: false));
     if (resp.statusCode != 200) return null;
 
     codec = await ui.instantiateImageCodec(
