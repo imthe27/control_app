@@ -106,11 +106,14 @@ void main() {
   });
 
   group('INE', () {
+    // The real layout, confirmed against a physical credencial: apellido
+    // paterno on line 1, apellido materno on line 2, given names after.
     final ineText = '''
 INSTITUTO NACIONAL ELECTORAL
 CREDENCIAL PARA VOTAR
 NOMBRE
-HERNANDEZ GARCIA
+HERNANDEZ
+GARCIA
 GLORIA
 DOMICILIO
 C ORQUIDEA 123 INT 4
@@ -121,13 +124,44 @@ CURP $validCurp
 ANO DE REGISTRO 2018 01
 ''';
 
-    test('extracts the name block and stops at DOMICILIO', () {
+    test('reorders the name block into nombre apellido apellido', () {
+      // The card prints surnames first. Joining in printed order gave
+      // "HERNANDEZ GARCIA GLORIA", which was the shipped behaviour until a
+      // real INE was scanned.
       final r = parseDocument(ineText);
       expect(r.kind, DocumentKind.ine);
       final name =
           r.fields.firstWhere((f) => f.target == WorkerField.name).value;
-      expect(name, 'HERNANDEZ GARCIA GLORIA');
+      expect(name, 'GLORIA HERNANDEZ GARCIA');
       expect(name, isNot(contains('ORQUIDEA')));
+    });
+
+    test('handles given names spanning two lines', () {
+      final text = ineText.replaceFirst('GLORIA\n', 'GLORIA\nMARIA\n');
+      final name = parseDocument(text)
+          .fields
+          .firstWhere((f) => f.target == WorkerField.name)
+          .value;
+      expect(name, 'GLORIA MARIA HERNANDEZ GARCIA');
+    });
+
+    test('handles an older card with both surnames on one line', () {
+      final text = ineText.replaceFirst('HERNANDEZ\nGARCIA\n', 'HERNANDEZ GARCIA\n');
+      final name = parseDocument(text)
+          .fields
+          .firstWhere((f) => f.target == WorkerField.name)
+          .value;
+      expect(name, 'GLORIA HERNANDEZ GARCIA');
+    });
+
+    test('a correct CURP produces no name-mismatch warning', () {
+      // The second symptom of the ordering bug: from "HERNANDEZ GARCIA GLORIA"
+      // curpPrefixFromName read GARCIA/GLORIA as the surnames and warned that a
+      // valid CURP did not match. With the order fixed, HERNANDEZ + GARCIA +
+      // GLORIA derives HEGG, which is this CURP's prefix.
+      final r = parseDocument(ineText);
+      expect(r.notes, isEmpty,
+          reason: 'a correct CURP must not be reported as mismatched');
     });
 
     test('extracts the address block and stops at CLAVE DE ELECTOR', () {

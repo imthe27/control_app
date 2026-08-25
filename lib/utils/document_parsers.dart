@@ -328,20 +328,52 @@ List<String> _blockAfter(
   return out;
 }
 
+/// Rebuilds a full name from the INE's name block, **reordering it**.
+///
+/// The card prints surnames first, given names last:
+///
+///     NOMBRE
+///     HERNANDEZ         <- apellido paterno, always line 1
+///     GARCIA            <- apellido materno, always line 2
+///     GLORIA MARIA      <- nombre(s), line 3 and sometimes 4
+///
+/// Confirmed against a real credencial (2026-08-24). The first two lines never
+/// vary; everything after them is the given name(s), which is why the caller
+/// allows four lines rather than three.
+///
+/// **Joining them in printed order is wrong**, and was the shipped behaviour
+/// until that test. It produced "HERNANDEZ GARCIA GLORIA", which is not how the
+/// form or any other screen renders a name — and it silently broke the CURP
+/// cross-check as well, because [curpPrefixFromName] reads the last two tokens
+/// as the surnames. From the mis-ordered string it derived a prefix from
+/// "GARCIA GLORIA" and reported that a perfectly correct CURP did not match the
+/// name. One ordering bug, two visible symptoms; the second was not a
+/// false-positive in the cross-check and must not be "fixed" by loosening it.
+String? _composeIneName(List<String> lines) {
+  if (lines.isEmpty) return null;
+  if (lines.length == 1) return lines.first;
+  if (lines.length == 2) {
+    // Both surnames sharing one line, given names on the next — the shape older
+    // cards use. Reordered to the same result.
+    return '${lines[1]} ${lines[0]}'.trim();
+  }
+  final paternal = lines[0];
+  final maternal = lines[1];
+  final given = lines.sublist(2).join(' ');
+  return '$given $paternal $maternal'.trim();
+}
+
 ScanResult _parseIne(String text) {
   final lines = _lines(text);
   final fields = <ScannedField>[];
 
-  final nameLines = _blockAfter(lines, 'NOMBRE', _ineNameStops, maxLines: 3);
-  if (nameLines.isNotEmpty) {
-    // The INE prints surnames first, then given names, on separate lines. The
-    // form stores one free-text NOMBRE COMPLETO, so they are joined in the
-    // order printed rather than reordered — reordering would be a guess, and
-    // the user is about to see the result anyway.
+  final nameLines = _blockAfter(lines, 'NOMBRE', _ineNameStops, maxLines: 4);
+  final composedName = _composeIneName(nameLines);
+  if (composedName != null && composedName.isNotEmpty) {
     fields.add(ScannedField(
       target: WorkerField.name,
       label: 'NOMBRE COMPLETO',
-      value: nameLines.join(' ').trim(),
+      value: composedName,
     ));
   }
 
