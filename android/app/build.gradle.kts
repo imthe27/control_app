@@ -35,6 +35,16 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Required since google_mlkit_text_recognition was added: R8 fails
+            // the release build outright on unresolved references to the script
+            // recognizers this app does not bundle. See proguard-rules.pro —
+            // it explains why -dontwarn is the right answer rather than adding
+            // four more OCR models. Only the Flutter default file plus ours;
+            // no minification settings are changed.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

@@ -54,6 +54,12 @@ dependencies:
   pdf: ^3.13.0
   printing: ^5.15.0
   image: ^4.9.1
+  # On-device OCR for the document scanner on screen_worker_form. Bundled
+  # model, not the Play Services variant: the crew works on construction sites
+  # and a feature that needs connectivity on first use is worse than a bigger
+  # download. Requires minSdk 21; the project is on 24 (Flutter default), so no
+  # android/ change is needed.
+  google_mlkit_text_recognition: ^0.17.1
 
 dev_dependencies:
   flutter_test:
