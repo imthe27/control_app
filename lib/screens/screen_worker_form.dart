@@ -6,6 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:control_app/api.dart';
 import 'package:control_app/screens/models/worker_roles.dart';
 import 'package:control_app/screens/widgets/worker_card.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:control_app/utils/document_parsers.dart';
+import 'package:control_app/screens/widgets/document_scan_sheet.dart';
 
 /// Full-screen form to register a new worker: photo, basic data
 /// and (optionally) the personal info shown in their ficha.
@@ -304,6 +307,189 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
     }
   }
 
+  // ---------- Document scan (OCR) ----------
+  //
+  // ⚠ This flow shares NOTHING with the photo flow above. It must not touch
+  // _photo, _existingPhoto or _photoCleared, and must never call _uploadPhoto.
+  // The captured image is read, used, and deleted; it is not the worker's
+  // photo, it is not uploaded, and it never reaches /media/.
+
+  bool _scanning = false;
+
+  Widget _scanAction() {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: (_saving || _scanning) ? null : _scanDocument,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white,
+          side: const BorderSide(color: Colors.white38),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_scanning)
+              const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white70))
+            else
+              const Icon(Icons.document_scanner_outlined, size: 20),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_scanning ? 'LEYENDO…' : 'ESCANEAR DOCUMENTO',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6)),
+                const SizedBox(height: 2),
+                const Text('INE o constancia del SAT',
+                    style: TextStyle(fontSize: 10, color: Colors.white60)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Bottom sheet mirroring `_pickPhoto`'s vocabulary — same shape, same handle,
+  /// same two options in the same order — so the interaction reads as familiar.
+  ///
+  /// Deliberately a separate sheet rather than a generalised one. Merging them
+  /// would couple a flow that keeps its image to one that must destroy it, and
+  /// the "QUITAR FOTO" entry belongs to only one of them.
+  Future<ImageSource?> _scanSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(
+                'La foto del documento solo se usa para leerlo. No se guarda '
+                'ni se sube.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera, color: Color(0xFF1C1CF0)),
+              title: const Text('TOMAR FOTO'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.photo_library, color: Color(0xFF1C1CF0)),
+              title: const Text('ELEGIR DE GALERÍA'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _scanDocument() async {
+    final source = await _scanSource();
+    if (source == null) return;
+
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 100, // OCR, not display — compression costs accuracy
+      maxWidth: 2400,
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _scanning = true);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    ScanResult? result;
+    try {
+      final ocr = await recognizer.processImage(InputImage.fromFilePath(picked.path));
+      result = parseDocument(ocr.text);
+    } catch (e) {
+      debugPrint('OCR failed: $e');
+    } finally {
+      await recognizer.close();
+      // ⚠ image_picker has no in-memory mode: the camera intent writes a real
+      // file into the app's cache and hands back its path. "Never written to
+      // disk" is therefore not achievable through this plugin, so the file is
+      // destroyed here instead — on every path, including the failure one.
+      try {
+        await File(picked.path).delete();
+      } catch (_) {
+        // Already gone, or the OS cleaned it. Nothing to recover.
+      }
+      if (mounted) setState(() => _scanning = false);
+    }
+
+    if (!mounted) return;
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('No se pudo leer la imagen'),
+            backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final confirmed = await showDocumentScanSheet(
+      context: context,
+      result: result,
+      current: {
+        WorkerField.name: _name.text,
+        WorkerField.curp: _curp.text,
+        WorkerField.rfc: _rfc.text,
+        WorkerField.address: _address.text,
+      },
+    );
+    if (confirmed == null || confirmed.isEmpty || !mounted) return;
+
+    // The ONLY place a scan reaches a controller, and only for fields the user
+    // ticked. Uppercasing is not cosmetic: _field's `caps: true` sets
+    // TextCapitalization.characters, which is a soft-keyboard hint and has no
+    // effect on text assigned programmatically — without this an applied CURP
+    // would sit in the field in a different case from every hand-typed one.
+    setState(() {
+      confirmed.forEach((field, value) {
+        switch (field) {
+          case WorkerField.name:
+            _name.text = value.toUpperCase();
+          case WorkerField.curp:
+            _curp.text = value.toUpperCase();
+          case WorkerField.rfc:
+            _rfc.text = value.toUpperCase();
+          case WorkerField.address:
+            _address.text = value;
+        }
+      });
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${confirmed.length} dato(s) aplicado(s)')),
+    );
+  }
+
   Future<String?> _uploadPhoto(File file) async {
     final req = http.MultipartRequest(
         'POST', u('/upload-photo/'));
@@ -522,6 +708,15 @@ class _WorkerFormScreenState extends State<WorkerFormScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+
+            // ---------- Document scan ----------
+            //
+            // A full-width action of its own, NOT a second badge on the avatar.
+            // That badge is Positioned inside the avatar's Stack and reads as a
+            // modifier of the photo; this is not that. The scanned image never
+            // becomes the worker photo and never reaches the server.
+            _scanAction(),
             const SizedBox(height: 16),
 
             // ---------- Basic data ----------
